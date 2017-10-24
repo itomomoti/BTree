@@ -11,13 +11,39 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 message("Building in ${CMAKE_BUILD_TYPE} mode")
 
-set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb -g -p")
+set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb -g -p -Wconversion")
 set(CMAKE_CXX_FLAGS_RELEASE "-ggdb -Ofast -fstrict-aliasing -DNDEBUG -march=native")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -ggdb -Ofast -fstrict-aliasing -march=native")
 
-project(OnlineRLBWT)
+project(BTree)
 
-add_subdirectory(${PROJECT_SOURCE_DIR}/module/Basics)
-include_directories(${PROJECT_SOURCE_DIR}/module/Basics)
-add_executable(${PROJECT_NAME} OnlineRLBWT.cpp DynRLE.cpp TagRelabelAlgo.cpp)
-target_link_libraries(${PROJECT_NAME} Basics)
+include_directories(${CMAKE_SOURCE_DIR})
+
+#add_library(${PROJECT_NAME} STATIC
+#  hoge.cpp
+#)
+
+#### TEST (to enable this add "-DTESTING=1" when running cmake)
+if(TESTING)
+  add_subdirectory(test)
+  enable_testing()
+endif(TESTING)
+
+
+
+#### Doxygen
+find_package(Doxygen)
+if(DOXYGEN_FOUND)
+  set(DOXYGEN_CONF_FILE "doxygen.conf")
+  set(DOXYGEN_CONF_PATH ${CMAKE_CURRENT_BINARY_DIR}/${DOXYGEN_CONF_FILE})
+  set(DOXYGEN_SOURCE_DIR ${CMAKE_SOURCE_DIR})
+  set(DOXYGEN_TARGET "doc")
+
+  configure_file(${DOXYGEN_CONF_FILE}.in ${DOXYGEN_CONF_PATH})
+
+  add_custom_target(${DOXYGEN_TARGET}
+                    ${DOXYGEN_EXECUTABLE} ${DOXYGEN_CONF_PATH}
+		    DEPENDS ${DOXYGEN_CONF_PATH})
+else(DOXYGEN_FOUND)
+  message(WARNING "doxygen binary couldn't be found")
+endif(DOXYGEN_FOUND)
