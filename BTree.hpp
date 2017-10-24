@@ -28,13 +28,7 @@
 template <uint8_t B = 64, uint8_t ROW_NUM = 1>
 class BTreeNode
 {
-  uint64_t psum_[ROW_NUM][B]; //!< Partial sum: psum_[i] = sum_{i = 0}^{i} [weight of i-th child (0base)]
-  BTreeNode<B, ROW_NUM> * parent_; //!< Pointer to parent node.
-  uint8_t idxInSibling_; //!< This node is 'idxInSibling_'-th child (0base) of its parent.
-  uint8_t numChildren_; //!< Current num of children.
-  uint8_t flags_;
-  BTreeNode<B, ROW_NUM> * children_[B]; //!< Pointers to children. Note that the children might not BTreeNode type when this node is in border.
-  BTreeNode<B, ROW_NUM> * lmBtm_; //!< To remember leftmost bottom of this node.
+  using BTreeNodeT = BTreeNode<B, ROW_NUM>;
 
   /*!
    * @brief For representing current status of node by 'flags_'.
@@ -50,13 +44,25 @@ public:
     NOTFOUND = UINTPTR_MAX
   };
 
+private:
+  // Member variables
+  uint64_t psum_[ROW_NUM][B+1]; //!< Partial sum: psum_[i+1] = sum_{i = 0}^{i} [weight of i-th child (0base)]
+  BTreeNodeT * parent_; //!< Pointer to parent node.
+  uint8_t idxInSibling_; //!< This node is 'idxInSibling_'-th child (0base) of its parent.
+  uint8_t numChildren_; //!< Current num of children.
+  uint8_t flags_;
+  BTreeNodeT * children_[B]; //!< Pointers to children. Note that the children might not BTreeNode type when this node is in border.
+  BTreeNodeT * lmBtm_; //!< To remember leftmost bottom of this node.
+
 public:
   BTreeNode<B, ROW_NUM>(bool isBorder, bool isRoot, BTreeNode<B, ROW_NUM> * lmBtm, bool isDummy = false)
   : parent_(NULL),
     numChildren_(0),
     flags_(isBorder * isBorderBit | isRoot * isRootBit | isDummy * isDummyBit),
     lmBtm_(lmBtm)
-  {}
+  {
+    psum_[0] = 0;
+  }
   ~BTreeNode<B, ROW_NUM>() = default;
   BTreeNode<B, ROW_NUM>(const BTreeNode<B, ROW_NUM> &) = delete;
   BTreeNode<B, ROW_NUM> & operator=(const BTreeNode<B, ROW_NUM> &) = delete;
@@ -65,54 +71,66 @@ public:
   //// simple getter
 public:
   /*!
-   * @brief Get the sum of weights (of row number 'row') of child subtrees numbered from 0 to i.
+   * @brief Get the sum of weights (of row number "ROW") of child subtrees numbered from 0 to i-1 (note that i is NOT included).
    */
+  template<uint8_t ROW>
   uint64_t getPSum
   (
-   const uint8_t row, //!< in [0, ROW_NUM).
-   const uint8_t i //!< in [0, 'numChildren_').
+   const uint8_t idx_excl //!< in [0.."numChildren_"].
    ) const noexcept {
-    assert(row < ROW_NUM);
-    assert(i < numChildren_);
+    static_assert(ROW < ROW_NUM, "ROW should be smaller than ROW_NUM");
+    assert(idx_excl <= numChildren_);
 
-    return psum_[row][i];
+    return psum_[ROW][idx_excl];
   }
 
 
   /*!
-   * @brief Get the weight (of row number 'row') of a child subtree.
+   * @brief Get the weight (of row number "ROW") of a child subtree.
    */
+  template<uint8_t ROW>
   uint64_t getWeightOfChild
   (
-   const uint8_t row, //!< in [0, ROW_NUM).
-   const uint8_t i //!< in [0, 'numChildren_').
+   const uint8_t idx //!< in [0.."numChildren_").
    ) const noexcept {
-    assert(row < ROW_NUM);
-    assert(i < numChildren_);
+    static_assert(ROW < ROW_NUM, "ROW should be smaller than ROW_NUM");
+    assert(idx < numChildren_);
 
-    return (i > 0) ? psum_[row][i] - psum_[row][i-1] : psum_[row][0];
+    return psum_[ROW][idx+1] - psum_[ROW][idx];
   }
 
 
   /*!
-   * @brief Get the weight (of row number 'row') of this node.
-   * @pre There is at least one child.
+   * @brief Get the weights of a child subtree.
    */
-  uint64_t getSumOfWeight
+  void getWeightOfChild
   (
-   const uint8_t row //!< in [0, ROW_NUM).
+   const uint8_t idx, //!< in [0.."numChildren_").
+   uint64_t (&weights)[ROW_NUM] //!< [out]
    ) const noexcept {
-    assert(row < ROW_NUM);
-    assert(numChildren_ > 0);
+    assert(idx < numChildren_);
 
-    return psum_[row][numChildren_ - 1];
+    for (uint8_t row = 0; row < ROW_NUM; ++row) {
+      weights[row] = psum_[row][idx+1] - psum_[row][idx];
+    }
+  }
+
+
+  /*!
+   * @brief Get the weight (of row number "row") of this node.
+   */
+  template<uint8_t ROW>
+  uint64_t getSumOfWeight() const noexcept {
+    static_assert(ROW < ROW_NUM, "ROW should be smaller than ROW_NUM");
+
+    return psum_[ROW][numChildren_];
   }
 
 
   /*!
    * @brief Get pointer to the i-th child (0base).
    */
-  BTreeNode<B, ROW_NUM> * getChildPtr
+  BTreeNodeT * getChildPtr
   (
    uint8_t i //!< in [0, 'numChildren_').
    ) const noexcept {
@@ -125,7 +143,7 @@ public:
   /*!
    * @brief Get pointer to parent.
    */
-  BTreeNode<B, ROW_NUM> * getParent() const noexcept {
+  BTreeNodeT * getParent() const noexcept {
     return parent_;
   }
 
@@ -174,7 +192,7 @@ public:
   /*!
    * @brief Get leftmost bottom. It takes O(1) time.
    */
-  BTreeNode<B, ROW_NUM> * getLmBtm() const noexcept {
+  BTreeNodeT * getLmBtm() const noexcept {
     return lmBtm_;
   }
 
@@ -182,7 +200,7 @@ public:
   /*!
    * @brief Get leftmost bottom. It takes O(h) time, where h is the height of this node.
    */
-  BTreeNode<B, ROW_NUM> * getRmBtm() const noexcept {
+  BTreeNodeT * getRmBtm() const noexcept {
     const auto * node = this;
     while (!(node->isBorder())) {
       node = node->children_[node->getNumChildren() - 1];
@@ -194,7 +212,7 @@ public:
   /*!
    * @brief Return next bottm starting from 'idxInSib'-th child (0base) of this node.
    */
-  BTreeNode<B, ROW_NUM> * getNextBtm(uint8_t idxInSib) const noexcept {
+  BTreeNodeT * getNextBtm(uint8_t idxInSib) const noexcept {
     const auto * node = this;
     while (idxInSib + 1 == node->getNumChildren() && !(node->isRoot())) {
       idxInSib = node->getIdxInSibling();
@@ -212,9 +230,9 @@ public:
 
 
   /*!
-   * @brief Return previous bottm starting from 'idxInSib'-th child (0base) of this node.
+   * @brief Return previous bottm starting from "idxInSib"-th child (0base) of this node.
    */
-  BTreeNode<B, ROW_NUM> * getPrevBtm(uint8_t idxInSib) const noexcept {
+  BTreeNodeT * getPrevBtm(uint8_t idxInSib) const noexcept {
     const auto * node = this;
     while (idxInSib == 0 && !(node->isRoot())) {
       idxInSib = node->getIdxInSibling();
@@ -232,22 +250,50 @@ public:
 
 
   /*!
-   * @brief Return partial sum (or row number 'row') up to the node (exclusive) indicated by 'idx'-th child (0base) of this node.
+   * @brief
+   *   Return partial sum (or row number "ROW") up to the node
+   *   (inclusive iff "inclusive == true") indicated by "idx"-th child (0base) of this node.
    */
+  /*
+  template<uint8_t ROW>
   uint64_t calcPSum
   (
-   const uint8_t row, //!< in [0, ROW_NUM).
    uint8_t idx,
-   const bool calcTotalPSum //!< Stopping criterion: If false, goes up until node 'isRoot() == true'. If true, goes up until node with 'parent_ == NULL' (convenient when BTrees are stacked).
+   bool inclusive = false
    ) const noexcept {
-    assert(row < ROW_NUM);
+    static_assert(ROW < ROW_NUM, "ROW should be smaller than ROW_NUM");
     assert(isBorder());
 
     const auto * node = this;
     uint64_t ret = 0;
     while (true) {
-      ret += (idx > 0) ? node->getPSum(row, idx - 1) : 0;
-      if (node->getParent() == NULL || (!calcTotalPSum && node->isRoot())) {
+      ret += node->getPSum<ROW>(idx + inclusive);
+      if (node->isRoot()) {
+        return ret;
+      }
+      idx = node->getIdxInSibling();
+      node = node->getParent();
+    }
+  }
+  */
+
+
+  /*!
+   * @brief Return partial sum (of row number "ROW") up to the node (exclusive) indicated by "idx"-th child (0base) of this node.
+   */
+  template<uint8_t ROW>
+  uint64_t calcPSum
+  (
+   uint8_t idx
+   ) const noexcept {
+    static_assert(ROW < ROW_NUM, "ROW should be smaller than ROW_NUM");
+    assert(isBorder());
+
+    const auto * node = this;
+    uint64_t ret = 0;
+    while (true) {
+      ret += node->getPSum<ROW>(idx);
+      if (node->isRoot()) {
         return ret;
       }
       idx = node->getIdxInSibling();
@@ -256,41 +302,63 @@ public:
   }
 
 
-  ////
   /*!
-   * @brief Traverse tree looking for 'pos' in weights array of 'row'.
-   * @return Pointer to bottom node where partial sum of 'pos' is achieved, where weight-0 nodes (e.g. dummy nodes) are skipped.
+   * @brief Return partial sum (of row number "ROW") up to the node (exclusive) indicated by "idx"-th child (0base) of this node.
    */
-  BTreeNode<B, ROW_NUM> * searchPos
+  template<uint8_t ROW>
+  uint64_t calcPSum
   (
-   const uint8_t row, //!< in [0, ROW_NUM).
+   uint8_t idx,
+   BTreeNodeT * retNode //!< [out] To capture the root of the BTree.
+   ) const noexcept {
+    static_assert(ROW < ROW_NUM, "ROW should be smaller than ROW_NUM");
+    assert(isBorder());
+
+    retNode = this;
+    uint64_t ret = 0;
+    while (true) {
+      ret += retNode->getPSum<ROW>(idx);
+      if (retNode->isRoot()) {
+        return ret;
+      }
+      idx = retNode->getIdxInSibling();
+      retNode = retNode->getParent();
+    }
+  }
+
+
+  /*!
+   * @brief Traverse tree looking for "pos" in weights array of "ROW".
+   * @return Pointer to bottom node where partial sum of "pos" is achieved, where weight-0 nodes (e.g. dummy nodes) are skipped.
+   */
+  template<uint8_t ROW>
+  BTreeNodeT * searchPos
+  (
    uint64_t & pos //!< [in,out] Give global position to search. It is modified to relative position in bottom node.
    ) const noexcept {
-    assert(row < ROW_NUM);
-    assert(pos < this->getSumOfWeight(row));
+    static_assert(ROW < ROW_NUM, "ROW should be smaller than ROW_NUM");
+    assert(pos < this->getSumOfWeight<ROW>());
 
-    uint8_t i = 0;
-    while (pos >= psum_[row][i]) {
+    uint8_t i = 1;
+    while (pos >= psum_[ROW][i]) {
       ++i;
     }
-    if (i) {
-      pos -= psum_[row][i-1];
-    }
+    pos -= psum_[ROW][i-1];
     if (isBorder()) {
-      return children_[i];
+      return children_[i-1];
     }
-    return children_[i]->searchPos(row, pos);
+    return children_[i-1]->searchPos<ROW>(pos);
   }
 
 
   //// private modifier (intend to call them from member function of BTreeNode)
 private:
-  void setLmBtm(BTreeNode<B, ROW_NUM> * btmRoot) noexcept {
+  void setLmBtm(BTreeNodeT * btmRoot) noexcept {
     lmBtm_ = btmRoot;
   }
 
 
-  void updateLmBtm(BTreeNode<B, ROW_NUM> * btmRoot) noexcept {
+  void updateLmBtm(BTreeNodeT * btmRoot) noexcept {
     auto * node = this;
     while (true) {
       node->setLmBtm(btmRoot);
@@ -307,20 +375,20 @@ private:
   }
 
 
-  void setParentRef(BTreeNode<B, ROW_NUM> * newParent, uint8_t newIdxInSibling) noexcept {
+  void setParentRef(BTreeNodeT * newParent, uint8_t newIdxInSibling) noexcept {
     this->parent_ = newParent;
     this->idxInSibling_ = newIdxInSibling;
   }
 
 
-  void setChildPtr(BTreeNode * child, uint8_t idx) noexcept {
+  void setChildPtr(BTreeNodeT * child, uint8_t idx) noexcept {
     assert(idx < numChildren_);
     children_[idx] = child;
   }
 
 
-  void makeNewRoot(BTreeNode<B, ROW_NUM> * fstHalf, BTreeNode<B, ROW_NUM> * sndHalf) {
-    auto newRoot = new BTreeNode<B, ROW_NUM>(false, true, fstHalf->getLmBtm());
+  void makeNewRoot(BTreeNodeT * fstHalf, BTreeNodeT * sndHalf) {
+    auto newRoot = new BTreeNodeT(false, true, fstHalf->getLmBtm());
     auto * parent = fstHalf->getParent();
     if (parent != NULL) { // BTrees are stacked
       const auto idxInSib = fstHalf->getIdxInSibling();
@@ -338,23 +406,60 @@ private:
   //// public modifier
 public:
   /*!
+   * @brief Put node of ::BTreeNode type at idx.
+   * @note
+   *   Set psum_, fix links between this node and child node, and increment "numChildren_".
+   */
+  void putBTreeNode
+  (
+   BTreeNodeT * child,
+   const uint8_t idx
+   ) noexcept {
+    assert(idx < B);
+
+    children_[idx] = child;
+    for (uint8_t row = 0; row < ROW_NUM; ++row) {
+      psum_[row][idx+1] = psum_[row][idx] + child->getSumOfWeight<row>();
+    }
+    child->setParentRef(this, idx);
+  }
+
+
+  /*!
    * @brief Pushback node of ::BTreeNode type.
    * @note
-   *   Set psum_, fix links between this node and child node, and increment 'numChildren_'.
+   *   Set psum_, fix links between this node and child node, and increment "numChildren_".
    */
   void pushbackBTreeNode
   (
-   BTreeNode<B, ROW_NUM> * child
+   BTreeNodeT * child
    ) noexcept {
     assert(numChildren_ < B);
 
-    children_[numChildren_] = child;
-    for (uint8_t row = 0; row < ROW_NUM; ++row) {
-      psum_[row][numChildren_] = (numChildren_ > 0) ?
-        psum_[row][numChildren_ - 1] + child->getSumOfWeight(row) : child->getSumOfWeight(row);
-    }
-    child->setParentRef(this, numChildren_);
+    putBTreeNode(child, numChildren_);
     ++numChildren_;
+  }
+
+
+  /*!
+   * @brief Put bottom node other than ::BTreeNode type.
+   * @note
+   *   Set psum_ to given value, set link from this node to child node, and increment 'numChildren_'.
+   *   Link from child node to this node should be set outside this function.
+   */
+  void putBtm
+  (
+   BTreeNodeT * child,
+   const uint8_t idx,
+   const uint64_t (&weights)[ROW_NUM]
+   ) noexcept {
+    assert(isBorder());
+    assert(idx < B);
+
+    children_[idx] = child;
+    for (uint8_t row = 0; row < ROW_NUM; ++row) {
+      psum_[row][idx+1] = psum_[row][idx] + weights[row];
+    }
   }
 
 
@@ -366,17 +471,122 @@ public:
    */
   void pushbackBtm
   (
-   BTreeNode<B, ROW_NUM> * child,
-   const uint64_t (&psumVal)[ROW_NUM]
+   BTreeNodeT * child,
+   const uint64_t (&weights)[ROW_NUM]
    ) noexcept {
     assert(isBorder());
     assert(numChildren_ < B);
 
-    children_[numChildren_] = child;
-    for (uint8_t row = 0; row < ROW_NUM; ++row) {
-      psum_[row][numChildren_] = psumVal[row];
-    }
+    putBtm(child, numChildren_, weights);
     ++numChildren_;
+  }
+
+
+  void shiftR
+  (
+   const uint64_t (&add_weights)[ROW_NUM],
+   const uint8_t idx, //!< Beginning idx to shift.
+   const uint8_t shift
+   ) {
+    assert(idx < numChildren_);
+    assert(numChildren_ + shift <= B);
+
+    for (uint8_t i = numChildren_; idx < i; --i) {
+      auto child = children_[i-1];
+      children_[i + shift - 1] = child;
+      child->idxInSibling_ = i + shift - 1;
+    }
+    for (uint8_t row = 0; row < ROW_NUM; ++row) {
+      for (uint8_t i = numChildren_; idx < i; --i) {
+        psum_[row][i + shift] = psum_[row][i] + add_weights[row];
+      }
+    }
+    numChildren_ += shift;
+  }
+
+
+  void overflow2L
+  (
+   BTreeNodeT * lnode,
+   BTreeNodeT * sndHalf,
+   const uint8_t idx
+   ) {
+    assert(idx < numChildren_);
+
+    const auto lnum = lnode->getNumChildren();
+    const auto numToLeft = lnum/2 + B/2 - lnum;
+    const bool idxIsInLeft = idx < numToLeft;
+    {
+      const auto stop = (idxIsInLeft)? idx+1 : numToLeft;
+      for (uint8_t i = 0; i < stop; ++i) {
+        lnode->pushbackBTreeNode(children_[i]);
+      }
+    }
+    if (idxIsInLeft) {
+      lnode->pushbackBTreeNode(sndHalf);
+      for (uint8_t i = idx + 1; i < numToLeft; ++i) {
+        lnode->pushbackBTreeNode(children_[i]);
+      }
+    }
+    //
+    {
+      const auto stop = (idxIsInLeft)? numChildren_ : idx+1;
+      for (uint8_t i = numToLeft; i < stop; ++i) {
+        putBTreeNode(children_[i], i - numToLeft);
+      }
+    }
+    if (!idxIsInLeft) {
+      putBTreeNode(sndHalf, idx + 1 - numToLeft);
+      for (uint8_t i = idx + 1; i < numChildren_; ++i) {
+        putBTreeNode(children_[i], i - numToLeft + 1);
+      }
+    }
+    numChildren_ -= (numToLeft - idxIsInLeft);
+  }
+
+
+  void overflow2R
+  (
+   BTreeNodeT * rnode,
+   BTreeNodeT * sndHalf,
+   const uint8_t idx
+   ) {
+    assert(idx < numChildren_);
+
+    uint64_t temp_weights[ROW_NUM];
+
+    const auto rnum = rnode->getNumChildren();
+    const auto leftEnd = rnum/2 + B/2;
+    const bool idxIsInLeft = idx < leftEnd;
+    auto shift = numChildren_ - leftEnd + !idxIsInLeft;
+    if (rnum) {
+      for (uint8_t row = 0; row < ROW_NUM; ++row) {
+        temp_weights[row] = psum_[row][numChildren_] - psum_[row][leftEnd];
+      }
+      rnode->shiftR(temp_weights, 0, shift); // Shift elements in rnode
+    }
+
+    const auto stop = (idxIsInLeft)? numChildren_ : idx+1;
+    for (uint8_t i = leftEnd; i < stop; ++i) {
+      rnode->putBTreeNode(children_[i], i - leftEnd);
+    }
+    if (!idxIsInLeft) {
+      rnode->putBTreeNode(sndHalf, idx + 1 - leftEnd);
+      for (uint8_t i = idx + 1; i < numChildren_; ++i) {
+        rnode->putBTreeNode(children_[i], i + 1 - leftEnd);
+      }
+    }
+
+    numChildren_ = leftEnd;
+    if (idxIsInLeft) {
+      for (uint8_t row = 0; row < ROW_NUM; ++row) {
+        psum_[row][idx] -= sndHalf->getSumOfWeight<row>();
+        temp_weights[row] = 0;
+      }
+      shiftR(temp_weights, idx + 1, 1);
+      putBTreeNode(sndHalf, idx + 1);
+      ++numChildren_;
+    }
   }
 
 
@@ -385,7 +595,7 @@ public:
    */
   void handleSplitOfChild
   (
-   BTreeNode<B, ROW_NUM> * sndHalf,
+   BTreeNodeT * sndHalf,
    const uint8_t idx
    ) {
     assert(idx <= numChildren_);
@@ -423,50 +633,182 @@ public:
   }
 
 
+  BTreeNodeT * shiftR_Btm
+  (
+   const uint64_t (&add_weights)[ROW_NUM],
+   const uint8_t idx, //!< Beginning idx to shift.
+   const uint8_t shift
+   ) {
+    assert(idx < numChildren_);
+    assert(numChildren_ + shift <= B);
+
+    for (uint8_t i = numChildren_; idx < i; --i) {
+      children_[i + shift - 1] = children_[i-1];
+    }
+    for (uint8_t row = 0; row < ROW_NUM; ++row) {
+      for (uint8_t i = numChildren_; idx < i; --i) {
+        psum_[row][i + shift] = psum_[row][i] + add_weights[row];
+      }
+    }
+    numChildren_ += shift;
+  }
+
+
+  void overflow2L_Btm
+  (
+   BTreeNodeT * lnode,
+   BTreeNodeT * sndHalf,
+   const uint64_t (&weights)[ROW_NUM],
+   const uint8_t idx
+   ) {
+    assert(idx < numChildren_);
+
+    uint64_t temp_weights[ROW_NUM];
+
+    const auto lnum = lnode->getNumChildren();
+    const auto numToLeft = lnum/2 + B/2 - lnum;
+    const bool idxIsInLeft = idx < numToLeft;
+    {
+      const auto stop = (idxIsInLeft)? idx : numToLeft;
+      for (uint8_t i = 0; i < stop; ++i) {
+        getWeightOfChild(i, temp_weights);
+        lnode->pushbackBtm(children_[i], temp_weights);
+      }
+    }
+    if (idxIsInLeft) {
+      getWeightOfChild(idx, temp_weights);
+      for (uint8_t row = 0; row < ROW_NUM; ++row) {
+        temp_weights[row] -= weights[row];
+      }
+      lnode->pushbackBtm(children_[idx], temp_weights);
+      lnode->pushbackBtm(sndHalf, weights);
+      for (uint8_t i = idx + 1; i < numToLeft; ++i) {
+        getWeightOfChild(i, temp_weights);
+        lnode->pushbackBtm(children_[i], temp_weights);
+      }
+    }
+    //
+    {
+      const auto stop = (idxIsInLeft)? numChildren_ : idx;
+      for (uint8_t i = numToLeft; i < stop; ++i) {
+        getWeightOfChild(i, temp_weights);
+        putBtm(children_[i], i - numToLeft, temp_weights);
+      }
+    }
+    if (!idxIsInLeft) {
+      getWeightOfChild(idx, temp_weights);
+      for (uint8_t row = 0; row < ROW_NUM; ++row) {
+        temp_weights[row] -= weights[row];
+      }
+      putBtm(children_[idx], idx - numToLeft, temp_weights);
+      putBtm(sndHalf, idx + 1 - numToLeft, weights);
+      for (uint8_t i = idx + 1; i < numChildren_; ++i) {
+        getWeightOfChild(i, temp_weights);
+        putBtm(children_[i], i - numToLeft + 1, temp_weights);
+      }
+    }
+    numChildren_ -= (numToLeft - idxIsInLeft);
+  }
+
+
+  void overflow2R_Btm
+  (
+   BTreeNodeT * rnode,
+   BTreeNodeT * sndHalf,
+   const uint64_t (&weights)[ROW_NUM],
+   const uint8_t idx
+   ) {
+    assert(idx < numChildren_);
+
+    uint64_t temp_weights[ROW_NUM];
+
+    const auto rnum = rnode->getNumChildren();
+    const auto leftEnd = rnum/2 + B/2;
+    const bool idxIsInLeft = idx < leftEnd;
+    auto shift = numChildren_ - leftEnd + !idxIsInLeft;
+    if (rnum) {
+      for (uint8_t row = 0; row < ROW_NUM; ++row) {
+        temp_weights[row] = psum_[row][numChildren_] - psum_[row][leftEnd];
+      }
+      rnode->shiftR_Btm(temp_weights, 0, shift); // Shift elements in rnode
+    }
+
+    {
+      const auto stop = (idxIsInLeft)? numChildren_ : idx;
+      for (uint8_t i = leftEnd; i < stop; ++i) {
+        getWeightOfChild(i, temp_weights);
+        rnode->putBtm(children_[i], i - leftEnd, temp_weights);
+      }
+    }
+    if (!idxIsInLeft) {
+      getWeightOfChild(idx, temp_weights);
+      for (uint8_t row = 0; row < ROW_NUM; ++row) {
+        temp_weights[row] -= weights[row];
+      }
+      rnode->putBtm(children_[idx], idx - leftEnd, temp_weights);
+      rnode->putBtm(sndHalf, idx + 1 - leftEnd, weights);
+      for (uint8_t i = idx + 1; i < numChildren_; ++i) {
+        getWeightOfChild(i, temp_weights);
+        rnode->putBtm(children_[i], i + 1 - leftEnd, temp_weights);
+      }
+    }
+    //
+    numChildren_ = leftEnd;
+    if (idxIsInLeft) {
+      for (uint8_t row = 0; row < ROW_NUM; ++row) {
+        psum_[row][idx] -= weights[row];
+        temp_weights[row] = 0;
+      }
+      shiftR_Btm(temp_weights, idx + 1, 1);
+      putBtm(sndHalf, idx + 1, weights);
+      ++numChildren_;
+    }
+  }
+
+
   /*!
    * @brief Handle the situation where 'children_[idx]' is split to 'children_[idx]' and 'sndHalf' when child node is not ::BTreeNode type.
    */
-  BTreeNode<B, ROW_NUM> * handleSplitOfBtm
+  BTreeNodeT * handleSplitOfBtm
   (
-   BTreeNode<B, ROW_NUM> * sndHalf,
-   const uint64_t (&weight)[ROW_NUM],
+   BTreeNodeT * sndHalf,
+   const uint64_t (&weights)[ROW_NUM],
    const uint8_t idx
    ) {
     assert(isBorder());
     assert(idx <= numChildren_);
 
-    if (numChildren_ < B) {
-      for (uint8_t i = numChildren_; idx + 1 < i; --i) {
-        children_[i] = children_[i-1];
-      }
+    if (numChildren_ < B) { // Easy case: Current node is not full.
+      uint64_t temp_weights[ROW_NUM] = {}; // 0 initialized.
       for (uint8_t row = 0; row < ROW_NUM; ++row) {
-        for (uint8_t i = numChildren_; idx + 1 < i; --i) {
-          psum_[row][i] = psum_[row][i-1];
-        }
+        psum_[row][idx] -= weights[row];
       }
-      ++numChildren_;
-      children_[idx+1] = sndHalf;
-      for (uint8_t row = 0; row < ROW_NUM; ++row) {
-        psum_[row][idx+1] = psum_[row][idx];
-        psum_[row][idx] -= weight[row];
-      }
+      shiftR_Btm(temp_weights, idx + 1, 1);
+      putBtm(sndHalf, idx + 1, weights);
       return NULL;
     }
+
+    if (!isRoot()) {
+      // Check siblings if they have space.
+      if (idxInSibling_) { // Check previous sibling.
+        auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
+        if (lnode->getNumChildren() < B - 1) { // prevSib is not full. (-1 for easier implementation)
+          overflow2L_Btm(lnode, sndHalf, weights, idx);
+          return lnode;
+        }
+      }
+      if (idxInSibling_ + 1 < parent_->getNumChildren()) { // Check next sibling.
+        auto rnode = parent_->getChildPtr(idxInSibling_ + 1);
+        if (rnode->getNumChildren() < B - 1) { // nextSib is not full. (-1 for easier implementation)
+          overflow2R_Btm(rnode, sndHalf, weights, idx);
+          return rnode;
+        }
+      }
+    }
+
     // this node has to be split
     auto newNode = new BTreeNode(true, false, children_[B/2]);
-    for (uint8_t i = B/2; i < B; ++i) {
-      uint64_t newPsumVal[ROW_NUM];
-      for (uint8_t row = 0; row < ROW_NUM; ++row) {
-        newPsumVal[row] = psum_[row][i] - psum_[row][B/2 - 1];
-      }
-      newNode->pushbackBtm(children_[i], newPsumVal);
-    }
-    numChildren_ = B/2;
-    if (idx < B/2) {
-      this->handleSplitOfBtm(sndHalf, weight, idx);
-    } else {
-      newNode->handleSplitOfBtm(sndHalf, weight, idx - B/2);
-    }
+    overflow2R_Btm(newNode, sndHalf, weights, idx);
     if (!isRoot()) {
       parent_->handleSplitOfChild(newNode, idxInSibling_);
     } else {
