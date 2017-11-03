@@ -4,6 +4,8 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF) ## on g++ this ensures: -std=c++11 and not -std=gnu++11
 
+
+
 #### Set a default build type if none was specified
 if(NOT CMAKE_BUILD_TYPE)
   message(STATUS "Setting build type to 'Release' as none was specified.")
@@ -17,11 +19,19 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -ggdb -Ofast -fstrict-aliasing -march=nat
 
 project(BTree)
 
+
+
+#### Modules
+add_subdirectory(${PROJECT_SOURCE_DIR}/module/Basics)
+include_directories(${PROJECT_SOURCE_DIR}/module/Basics)
+
 include_directories(${CMAKE_SOURCE_DIR})
 
 #add_library(${PROJECT_NAME} STATIC
 #  hoge.cpp
 #)
+
+
 
 #### TEST (to enable this add "-DTESTING=1" when running cmake)
 if(TESTING)
@@ -44,6 +54,7 @@ if(DOXYGEN_FOUND)
   add_custom_target(${DOXYGEN_TARGET}
                     ${DOXYGEN_EXECUTABLE} ${DOXYGEN_CONF_PATH}
 		    DEPENDS ${DOXYGEN_CONF_PATH})
+  message("\"$ make doc\" to run Doxygen")
 else(DOXYGEN_FOUND)
   message(WARNING "doxygen binary couldn't be found")
 endif(DOXYGEN_FOUND)
