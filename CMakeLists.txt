@@ -68,6 +68,8 @@ if(TESTING OR TESTING_ALL)
 
     add_subdirectory(test)
     enable_testing()
+
+    add_test(NAME PSumWithValue_Test COMMAND PSumWithValue_Test)
   endif()
 endif()
 

@@ -22,17 +22,21 @@ endif()
 
 
 
+include_directories(${CMAKE_SOURCE_DIR}/module/Basics)
+
+
+
 #### set runtime directory
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 
 
 #### Generate executable file
-# add_executable(BitVec_Test ${CMAKE_CURRENT_SOURCE_DIR}/BitVec_Test.cpp ${CMAKE})
+add_executable(PSumWithValue_Test ${CMAKE_CURRENT_SOURCE_DIR}/PSumWithValue_Test.cpp ${CMAKE})
 
 # add_executable(BitsUtil_Benchmark ${CMAKE_CURRENT_SOURCE_DIR}/BitsUtil_Benchmark.cpp ${CMAKE})
 
 #### Link libraries
-# target_link_libraries(BitVec_Test Basics gtest gtest_main pthread)
+target_link_libraries(PSumWithValue_Test Basics gtest gtest_main pthread)
 
 # target_link_libraries(BitsUtil_Benchmark Basics)
