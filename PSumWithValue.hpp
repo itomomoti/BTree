@@ -922,7 +922,7 @@ namespace itmmti
       os << "BTree arity for bottom node = " << static_cast<int>(kBtmB) << std::endl;
       const size_t sumWeights = calcSumOfWeight();
       os << "num of children = " << static_cast<uint64_t>(numChildren_)
-         << ", Sum of weights = " << sumWeights << std::endl;
+         << ", sum of weights = " << sumWeights << std::endl;
       os << "bit size = " << bitSize_ << ", bit capacity = " << bitCapacity_ << std::endl;
       os << "Total: " << calcMemBytes() << " bytes" << std::endl;
       os << "Memory usage for dynamic arrays of step code: " << calcMemBytesDynArray() << " bytes" << std::endl;
