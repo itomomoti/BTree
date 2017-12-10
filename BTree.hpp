@@ -650,12 +650,6 @@ namespace itmmti
     (
      BTreeNodeT * sndHalf
      ) noexcept {
-      {//debug
-        std::cout << __FUNCTION__ << " " << this << " " << sndHalf << std::endl;
-        // this->printStatistics(std::cout, true);
-        // sndHalf->printStatistics(std::cout, true);
-      }
-
       auto newRoot = new BTreeNodeT(this->getLmJumpNode(), true, false, this->isJumpToBtm(), this->isUnderSuperRoot());
       auto * parent = this->getParent();
       if (parent != nullptr) {
@@ -670,10 +664,6 @@ namespace itmmti
       }
       newRoot->pushbackBTreeNode(this);
       newRoot->pushbackBTreeNode(sndHalf);
-
-      // {//debug
-      //   newRoot->printStatistics(std::cout, true);
-      // }
     }
 
 
@@ -830,9 +820,6 @@ namespace itmmti
      ) {
       assert(numChildren_ == kB);
       assert(idx < kB);
-      {//debug
-        std::cout << __FUNCTION__ << " " << this << " " << rnode << std::endl;
-      }
 
       const uint8_t rnum = rnode->getNumChildren();
       const uint8_t leftEnd = rnum/2 + kB/2;
@@ -1032,9 +1019,6 @@ namespace itmmti
      const uint8_t idx
      ) {
       assert(idx <= numChildren_);
-      {//debug
-        std::cout << __FUNCTION__ << " " << this << " " << (int)idx << "-th child " << children_[idx] << " " << sndHalf << std::endl;
-      }
 
       const auto end = numChildren_;
       if (end < kB) { // Easy case: Current node is not full.
@@ -1076,9 +1060,6 @@ namespace itmmti
       }
 
       { // this node has to be split
-        {//debug
-          std::cout << __FUNCTION__ << ": " << this << " split " << (int)idx << "-th child " << children_[idx] << ". sndHalf = " << sndHalf << std::endl;
-        }
         auto newNode = new BTreeNodeT(nullptr, false, this->isBorder(), this->isJumpToBtm(), this->isUnderSuperRoot());
         overflowToR(newNode, sndHalf, idx);
         if (!isRoot()) {
@@ -1102,9 +1083,6 @@ namespace itmmti
      ) {
       assert(isBorder());
       assert(idx <= numChildren_);
-      {//debug
-        std::cout << __FUNCTION__ << " " << this << " " << (int)idx << "-th child " << children_[idx] << " " << sndHalf << std::endl;
-      }
 
       if (numChildren_ < kB) { // Easy case: Current node is not full.
         {
