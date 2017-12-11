@@ -558,13 +558,13 @@ namespace itmmti
      * @brief Traverse tree looking for "pos" in weights array.
      * @return Pointer to bottom node where partial sum of "pos" is achieved, where weight-0 nodes (e.g. dummy nodes) are skipped.
      */
-    BTreeNodeT * searchPos
+    const BTreeNodeT * searchPos
     (
      uint64_t & pos //!< [in,out] Give global position to search. It is modified to relative position in bottom node.
      ) const noexcept {
       assert(pos < this->getSumOfWeight());
 
-      BTreeNodeT * node = this;
+      const BTreeNodeT * node = this;
       while (true) {
         uint8_t i = 0;
         auto array = node->getConstPtr_psum();
@@ -576,6 +576,60 @@ namespace itmmti
           return children_[i];
         }
         node = node->getChildPtr(i);
+      }
+    }
+
+
+    /*!
+     * @brief Traverse tree looking for "pos" in weights array.
+     * @return Pointer to bottom node where partial sum of "pos" is achieved, where weight-0 nodes (e.g. dummy nodes) are skipped.
+     */
+    BTreeNodeT * searchPos
+    (
+     uint64_t & pos //!< [in,out] Give global position to search. It is modified to relative position in bottom node.
+     ) noexcept {
+      assert(pos < this->getSumOfWeight());
+
+      const BTreeNodeT * node = this;
+      while (true) {
+        uint8_t i = 0;
+        auto array = node->getConstPtr_psum();
+        while (pos >= array[i + 1]) {
+          ++i;
+        }
+        pos -= array[i];
+        if (this->isBorder()) {
+          return children_[i];
+        }
+        node = node->getChildPtr(i);
+      }
+    }
+
+
+    /*!
+     * @brief Traverse tree looking for "pos" in weights array.
+     * @return Pointer to bottom node where partial sum of "pos" is achieved, where weight-0 nodes (e.g. dummy nodes) are skipped.
+     */
+    void searchPos
+    (
+     uint64_t & pos, //!< [in,out] Give global position to search. It is modified to relative position in bottom node.
+     const BTreeNodeT *& retNode, //!< [out] To capture parent of returned bottom node.
+     uint8_t & retIdx //!< [out] To capture sibling idx of returned bottom node.
+     ) const noexcept {
+      assert(pos < this->getSumOfWeight());
+
+      retNode = this;
+      while (true) {
+        retIdx = 0;
+        auto array = retNode->getConstPtr_psum();
+        while (pos >= array[retIdx + 1]) {
+          ++retIdx;
+        }
+        pos -= array[retIdx];
+        if (retNode->isBorder()) {
+          return;
+        }
+        retNode = retNode->getChildPtr(retIdx);
       }
     }
 
