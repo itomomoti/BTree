@@ -26,8 +26,21 @@ namespace itmmti
   {
     BTreeNodeT * root_;
 
+
     SuperRoot() : root_(nullptr)
     {}
+
+
+    void setRoot
+    (
+     BTreeNodeT * root
+     ) noexcept {
+      assert(root->isRoot());
+      assert(root->isUnderSuperRoot());
+
+      root_ = root;
+      root->setParentRef(reinterpret_cast<BTreeNodeT *>(this), root->getIdxInSibling());
+    }
   };
 
 
@@ -597,171 +610,6 @@ namespace itmmti
 
   private:
     //// private modifier (intend to call them from member function of BTreeNode)
-    void setLmJumpNode
-    (
-     BTreeNodeT * lmJumpNode
-     ) noexcept {
-      lmJumpNode_ = lmJumpNode;
-    }
-
-
-    void updateLmJumpNode
-    (
-     BTreeNodeT * lmJumpNode
-     ) noexcept {
-      auto * node = this;
-      while (true) {
-        node->setLmJumpNode(lmJumpNode);
-        if (node->isRoot() || node->getIdxInSibling() > 0) {
-          break;
-        }
-        node = node->getParent();
-      }
-    }
-
-
-    void unroot() noexcept {
-      flags_ &= ~isRootBit;
-    }
-
-
-    void setParentRef
-    (
-     BTreeNodeT * newParent,
-     uint8_t newIdxInSibling
-     ) noexcept {
-      this->parent_ = newParent;
-      this->idxInSibling_ = newIdxInSibling;
-    }
-
-
-    void setChildPtr
-    (
-     BTreeNodeT * child,
-     uint8_t idx
-     ) noexcept {
-      assert(idx < numChildren_);
-
-      children_[idx] = child;
-    }
-
-
-    void makeNewRoot
-    (
-     BTreeNodeT * sndHalf
-     ) noexcept {
-      auto newRoot = new BTreeNodeT(this->getLmJumpNode(), true, false, this->isJumpToBtm(), this->isUnderSuperRoot());
-      auto * parent = this->getParent();
-      if (parent != nullptr) {
-        if (this->isUnderSuperRoot()) { // parent is super root
-          newRoot->setSuperRoot(reinterpret_cast<BTreeNodeT::SuperRootT *>(parent));
-          reinterpret_cast<BTreeNodeT::SuperRootT *>(parent)->root_ = newRoot;
-        } else { // BTrees are stacked
-          const auto idxInSib = this->getIdxInSibling();
-          parent->setChildPtr(newRoot, idxInSib); // parent points to newRoot
-          newRoot->setParentRef(parent, idxInSib); // newRoot points to parent
-        }
-      }
-      newRoot->pushbackBTreeNode(this);
-      newRoot->pushbackBTreeNode(sndHalf);
-    }
-
-
-    /*!
-     * @brief Put node of ::BTreeNodeT type at idx.
-     * @note
-     *   - "psum_" is set using immediately preceeding psum value and weights of "child".
-     *   - Links between "this" and "child" is fixed.
-     *   - "numChildren_" is not incremented.
-     */
-    void putBTreeNode
-    (
-     BTreeNodeT * child,
-     const uint8_t idx
-     ) noexcept {
-      assert(idx < kB);
-
-      children_[idx] = child;
-      psum_[idx + 1] = psum_[idx] + child->getSumOfWeight();
-      child->setParentRef(this, idx);
-    }
-
-
-    /*!
-     * @brief Pushback node of ::BTreeNodeT type.
-     * @note
-     *   - Links between "this" and "child" is fixed.
-     *   - "numChildren_" is incremented.
-     */
-    void pushbackBTreeNode
-    (
-     BTreeNodeT * child
-     ) noexcept {
-      assert(numChildren_ < kB);
-
-      putBTreeNode(child, numChildren_);
-      ++numChildren_;
-    }
-
-
-    /*!
-     * @brief Put bottom node other than ::BTreeNodeT type.
-     * @note
-     *   Link from "child" to "this" should be set outside this function (if "child" maintains it).
-     */
-    void putBtm
-    (
-     BTreeNodeT * child,
-     const uint8_t idx,
-     const uint64_t weight
-     ) noexcept {
-      assert(isBorder());
-      assert(idx < kB);
-
-      children_[idx] = child;
-      psum_[idx + 1] = psum_[idx] + weight;
-    }
-
-
-    /*!
-     * @brief Pushback bottom node other than ::BTreeNodeT type.
-     * @note
-     *   Link from "child" to "this" should be set outside this function (if "child" maintains it).
-     */
-    void pushbackBtm
-    (
-     BTreeNodeT * child,
-     const uint64_t weight
-     ) noexcept {
-      assert(isBorder());
-      assert(numChildren_ < kB);
-
-      putBtm(child, numChildren_, weight);
-      ++numChildren_;
-    }
-
-
-    void shiftR
-    (
-     const uint64_t add_weight,
-     const uint8_t idx, //!< Beginning idx to shift.
-     const uint8_t shift
-     ) {
-      assert(idx <= numChildren_);
-      assert(numChildren_ + shift <= kB);
-
-      for (uint8_t i = numChildren_; idx < i; --i) {
-        auto child = children_[i-1];
-        children_[i + shift - 1] = child;
-        child->idxInSibling_ = i + shift - 1;
-      }
-      for (uint8_t i = numChildren_; idx < i; --i) {
-        psum_[i + shift] = psum_[i] + add_weight;
-      }
-      numChildren_ += shift;
-    }
-
-
     void overflowToL
     (
      BTreeNodeT * lnode,
@@ -853,25 +701,6 @@ namespace itmmti
       } else if (rnode->isJumpToBtm()) {
         rnode->setLmJumpNode(rnode->children_[0]);
       }
-    }
-
-
-    void shiftR_Btm
-    (
-     const uint64_t add_weight,
-     const uint8_t idx, //!< Beginning idx to shift.
-     const uint8_t shift
-     ) {
-      assert(idx <= numChildren_);
-      assert(numChildren_ + shift <= kB);
-
-      for (uint8_t i = numChildren_; idx < i; --i) {
-        children_[i + shift - 1] = children_[i-1];
-      }
-      for (uint8_t i = numChildren_; idx < i; --i) {
-        psum_[i + shift] = psum_[i] + add_weight;
-      }
-      numChildren_ += shift;
     }
 
 
@@ -999,14 +828,186 @@ namespace itmmti
 
   public:
     //// public modifier
-    void setSuperRoot
+    void setLmJumpNode
     (
-     BTreeNodeT::SuperRootT * superRoot
+     BTreeNodeT * lmJumpNode
      ) noexcept {
-      assert(isRoot());
-      assert(isUnderSuperRoot());
+      lmJumpNode_ = lmJumpNode;
+    }
 
-      parent_ = reinterpret_cast<BTreeNodeT *>(superRoot);
+
+    void updateLmJumpNode
+    (
+     BTreeNodeT * lmJumpNode
+     ) noexcept {
+      auto * node = this;
+      while (true) {
+        node->setLmJumpNode(lmJumpNode);
+        if (node->isRoot() || node->getIdxInSibling() > 0) {
+          break;
+        }
+        node = node->getParent();
+      }
+    }
+
+
+    void unroot() noexcept {
+      flags_ &= ~isRootBit;
+    }
+
+
+    void setParentRef
+    (
+     BTreeNodeT * newParent,
+     uint8_t newIdxInSibling
+     ) noexcept {
+      this->parent_ = newParent;
+      this->idxInSibling_ = newIdxInSibling;
+    }
+
+
+    void setChildPtr
+    (
+     BTreeNodeT * child,
+     uint8_t idx
+     ) noexcept {
+      assert(idx < numChildren_);
+
+      children_[idx] = child;
+    }
+
+
+    void makeNewRoot
+    (
+     BTreeNodeT * sndHalf
+     ) noexcept {
+      auto newRoot = new BTreeNodeT(this->getLmJumpNode(), true, false, this->isJumpToBtm(), this->isUnderSuperRoot());
+      auto * parent = this->getParent();
+      if (parent != nullptr) {
+        if (this->isUnderSuperRoot()) { // parent is super root
+          reinterpret_cast<BTreeNodeT::SuperRootT *>(parent)->setRoot(newRoot);
+        } else { // BTrees are stacked
+          const auto idxInSib = this->getIdxInSibling();
+          parent->setChildPtr(newRoot, idxInSib); // parent points to newRoot
+          newRoot->setParentRef(parent, idxInSib); // newRoot points to parent
+        }
+      }
+      newRoot->pushbackBTreeNode(this);
+      newRoot->pushbackBTreeNode(sndHalf);
+    }
+
+
+    /*!
+     * @brief Put node of ::BTreeNodeT type at idx.
+     * @note
+     *   - "psum_" is set using immediately preceeding psum value and weights of "child".
+     *   - Links between "this" and "child" is fixed.
+     *   - "numChildren_" is not incremented.
+     */
+    void putBTreeNode
+    (
+     BTreeNodeT * child,
+     const uint8_t idx
+     ) noexcept {
+      assert(idx < kB);
+
+      children_[idx] = child;
+      psum_[idx + 1] = psum_[idx] + child->getSumOfWeight();
+      child->setParentRef(this, idx);
+    }
+
+
+    /*!
+     * @brief Pushback node of ::BTreeNodeT type.
+     * @note
+     *   - Links between "this" and "child" is fixed.
+     *   - "numChildren_" is incremented.
+     */
+    void pushbackBTreeNode
+    (
+     BTreeNodeT * child
+     ) noexcept {
+      assert(numChildren_ < kB);
+
+      putBTreeNode(child, numChildren_);
+      ++numChildren_;
+    }
+
+
+    /*!
+     * @brief Put bottom node other than ::BTreeNodeT type.
+     * @note
+     *   Link from "child" to "this" should be set outside this function (if "child" maintains it).
+     */
+    void putBtm
+    (
+     BTreeNodeT * child,
+     const uint8_t idx,
+     const uint64_t weight
+     ) noexcept {
+      assert(isBorder());
+      assert(idx < kB);
+
+      children_[idx] = child;
+      psum_[idx + 1] = psum_[idx] + weight;
+    }
+
+
+    /*!
+     * @brief Pushback bottom node other than ::BTreeNodeT type.
+     * @note
+     *   Link from "child" to "this" should be set outside this function (if "child" maintains it).
+     */
+    void pushbackBtm
+    (
+     BTreeNodeT * child,
+     const uint64_t weight
+     ) noexcept {
+      assert(isBorder());
+      assert(numChildren_ < kB);
+
+      putBtm(child, numChildren_, weight);
+      ++numChildren_;
+    }
+
+
+    void shiftR
+    (
+     const uint64_t add_weight,
+     const uint8_t idx, //!< Beginning idx to shift.
+     const uint8_t shift
+     ) {
+      assert(idx <= numChildren_);
+      assert(numChildren_ + shift <= kB);
+
+      for (uint8_t i = numChildren_; idx < i; --i) {
+        auto child = children_[i-1];
+        children_[i + shift - 1] = child;
+        child->idxInSibling_ = i + shift - 1;
+      }
+      for (uint8_t i = numChildren_; idx < i; --i) {
+        psum_[i + shift] = psum_[i] + add_weight;
+      }
+      numChildren_ += shift;
+    }
+
+
+    void shiftR_Btm
+    (
+     const uint64_t add_weight,
+     const uint8_t idx, //!< Beginning idx to shift.
+     const uint8_t shift
+     ) {
+      assert(idx <= numChildren_);
+      assert(numChildren_ + shift <= kB);
+
+      for (uint8_t i = numChildren_; idx < i; --i) {
+        children_[i + shift - 1] = children_[i-1];
+      }
+      for (uint8_t i = numChildren_; idx < i; --i) {
+        psum_[i + shift] = psum_[i] + add_weight;
+      }
+      numChildren_ += shift;
     }
 
 
