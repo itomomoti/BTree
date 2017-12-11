@@ -537,8 +537,31 @@ namespace itmmti
     uint64_t calcPSum
     (
      uint8_t idx,
-     BTreeNodeT *& retNode //!< [out] To capture the root of the BTree.
+     const BTreeNodeT *& retNode //!< [out] To capture the root of the BTree.
      ) const noexcept {
+      assert(isBorder());
+
+      retNode = this;
+      uint64_t ret = 0;
+      while (true) {
+        ret += retNode->getPSum(idx);
+        if (retNode->isRoot()) {
+          return ret;
+        }
+        idx = retNode->getIdxInSibling();
+        retNode = retNode->getParent();
+      }
+    }
+
+
+    /*!
+     * @brief Return partial sum up to the node (exclusive) indicated by "idx"-th child (0base) of this node.
+     */
+    uint64_t calcPSum
+    (
+     uint8_t idx,
+     BTreeNodeT *& retNode //!< [out] To capture the root of the BTree.
+     ) noexcept {
       assert(isBorder());
 
       retNode = this;

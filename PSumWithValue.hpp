@@ -1009,8 +1009,7 @@ namespace itmmti
         clearAll();
       }
       BtmNodeT * fstBtmNode = new BtmNodeT(kBtmB * 8);
-      sr_.root_ = new BTreeNodeT(nullptr, true, true, false, true, false);
-      sr_.root_->setSuperRoot(&sr_);
+      sr_.setRoot(new BTreeNodeT(nullptr, true, true, false, true, false));
       sr_.root_->putFirstBtm(reinterpret_cast<BTreeNodeT *>(fstBtmNode), 0);
       // Insert sentinel.
       const uint64_t dummyArray[] = {0};

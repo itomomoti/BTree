@@ -32,7 +32,7 @@ add_library(${PROJECT_NAME} STATIC
 
 #### Modules
 if(NOT MYMOD_DIR)
-  set(MYMOD_DIR ${CMAKE_SOURCE_DIR}/mymod)
+  set(MYMOD_DIR ${CMAKE_SOURCE_DIR}/module)
   add_subdirectory(${MYMOD_DIR}/Basics ${MYMOD_DIR}/Basics)
 endif()
 include_directories(${MYMOD_DIR}/Basics)
