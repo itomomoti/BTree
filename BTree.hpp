@@ -481,6 +481,50 @@ namespace itmmti
 
 
     /*!
+     * @brief Return next sibling of this node.
+     */
+    BTreeNodeT * getNextSib() const noexcept {
+      uint32_t level = 1;
+      const auto * node = this;
+      while (!(node->isRoot())) {
+        const auto idxInSib = node->getIdxInSibling();
+        node = node->getParent();
+        if (idxInSib + 1 < node->getNumChildren()) {
+          node = node->getChildPtr(idxInSib + 1);
+          while (--level) {
+            node = node->getChildPtr(0);
+          }
+          return node;
+        }
+        ++level;
+      }
+      return reinterpret_cast<BTreeNodeT *>(NOTFOUND);
+    }
+
+
+    /*!
+     * @brief Return previous sibling of this node.
+     */
+    BTreeNodeT * getPrevSib () const noexcept {
+      uint32_t level = 1;
+      const auto * node = this;
+      while (!(node->isRoot())) {
+        const auto idxInSib = node->getIdxInSibling();
+        node = node->getParent();
+        if (idxInSib) {
+          node = node->getChildPtr(0);
+          while (--level) {
+            node = node->getChildPtr(node->getNumChildren() - 1);
+          }
+          return node;
+        }
+        ++level;
+      }
+      return reinterpret_cast<BTreeNodeT *>(NOTFOUND);
+    }
+
+
+    /*!
      * @brief
      *   Return partial sum (or row number "ROW") up to the node
      *   (inclusive iff "inclusive == true") indicated by "idx"-th child (0base) of this node.
@@ -1153,7 +1197,7 @@ namespace itmmti
     /*!
      * @brief Handle the situation where 'children_[idx]' is split to 'children_[idx]' and 'sndHalf' when child node is not ::BTreeNode type.
      */
-    BTreeNodeT * handleSplitOfBtm
+    uint8_t handleSplitOfBtm
     (
      BTreeNodeT * sndHalf,
      const uint64_t weight,
@@ -1163,26 +1207,24 @@ namespace itmmti
       assert(idx <= numChildren_);
 
       if (numChildren_ < kB) { // Easy case: Current node is not full.
-        {
-          std::cout << __FUNCTION__ << " easy: " << psum_[idx + 1] << ", " << weight << std::endl;
-        }
         psum_[idx + 1] -= weight;
         shiftR_Btm(0, idx + 1, 1);
         putBtm(sndHalf, idx + 1, weight);
-        return nullptr;
+        return 0;
       }
 
       if (!isRoot()) {
         // Check siblings if they have space.
         if (idxInSibling_) { // Check previous sibling.
           auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
-          if (lnode->getNumChildren() < kB - 1) { // Previous sibling is not full. (-1 for easier implementation)
+          const uint8_t lnum = lnode->getNumChildren();
+          if (lnum < kB - 1) { // Previous sibling is not full. (-1 for easier implementation)
             overflowToL_Btm(lnode, sndHalf, weight, idx);
             if (!(this->isRoot())) {
               const uint64_t psum = parent_->getPSum(idxInSibling_ - 1) + lnode->getSumOfWeight(); // psum value for lnode in its parent
               parent_->changePSumAt(idxInSibling_ - 1, psum);
             }
-            return lnode;
+            return lnum/2 + kB/2 - lnum; // return "numToLeft" in overflowTL_Btm. Actual number of increase of lnode is "numToLeft + (idx < numToLeft)".
           }
         }
         if (idxInSibling_ + 1 < parent_->getNumChildren()) { // Check next sibling.
@@ -1193,7 +1235,7 @@ namespace itmmti
               const uint64_t psum = parent_->getPSum(idxInSibling_) + this->getSumOfWeight(); // psum value for this node in its parent
               parent_->changePSumAt(idxInSibling_, psum);
             }
-            return rnode;
+            return 0;
           }
         }
       }
@@ -1210,7 +1252,7 @@ namespace itmmti
           this->unroot();
           this->makeNewRoot(newNode);
         }
-        return newNode;
+        return 0;
       }
     }
 
