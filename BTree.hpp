@@ -483,7 +483,7 @@ namespace itmmti
     /*!
      * @brief Return next sibling of this node.
      */
-    BTreeNodeT * getNextSib() const noexcept {
+    const BTreeNodeT * getNextSib() const noexcept {
       uint32_t level = 1;
       const auto * node = this;
       while (!(node->isRoot())) {
@@ -503,16 +503,24 @@ namespace itmmti
 
 
     /*!
+     * @brief Return next sibling of this node.
+     */
+    BTreeNodeT * getNextSib() noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getNextSib());
+    }
+
+
+    /*!
      * @brief Return previous sibling of this node.
      */
-    BTreeNodeT * getPrevSib () const noexcept {
+    const BTreeNodeT * getPrevSib () const noexcept {
       uint32_t level = 1;
       const auto * node = this;
       while (!(node->isRoot())) {
         const auto idxInSib = node->getIdxInSibling();
         node = node->getParent();
         if (idxInSib) {
-          node = node->getChildPtr(0);
+          node = node->getChildPtr(idxInSib - 1);
           while (--level) {
             node = node->getChildPtr(node->getNumChildren() - 1);
           }
@@ -521,6 +529,14 @@ namespace itmmti
         ++level;
       }
       return reinterpret_cast<BTreeNodeT *>(NOTFOUND);
+    }
+
+
+    /*!
+     * @brief Return previous sibling of this node.
+     */
+    BTreeNodeT * getPrevSib () noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getPrevSib());
     }
 
 
@@ -639,8 +655,8 @@ namespace itmmti
           ++i;
         }
         pos -= array[i];
-        if (this->isBorder()) {
-          return children_[i];
+        if (node->isBorder()) {
+          return node->getChildPtr(i);
         }
         node = node->getChildPtr(i);
       }
@@ -655,21 +671,7 @@ namespace itmmti
     (
      uint64_t & pos //!< [in,out] Give global position to search. It is modified to relative position in bottom node.
      ) noexcept {
-      assert(pos < this->getSumOfWeight());
-
-      const BTreeNodeT * node = this;
-      while (true) {
-        uint8_t i = 0;
-        auto array = node->getConstPtr_psum();
-        while (pos >= array[i + 1]) {
-          ++i;
-        }
-        pos -= array[i];
-        if (this->isBorder()) {
-          return children_[i];
-        }
-        node = node->getChildPtr(i);
-      }
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).searchPos(pos));
     }
 
 
@@ -711,21 +713,7 @@ namespace itmmti
      BTreeNodeT *& retNode, //!< [out] To capture parent of returned bottom node.
      uint8_t & retIdx //!< [out] To capture sibling idx of returned bottom node.
      ) noexcept {
-      assert(pos < this->getSumOfWeight());
-
-      retNode = this;
-      while (true) {
-        retIdx = 0;
-        auto array = retNode->getConstPtr_psum();
-        while (pos >= array[retIdx + 1]) {
-          ++retIdx;
-        }
-        pos -= array[retIdx];
-        if (retNode->isBorder()) {
-          return;
-        }
-        retNode = retNode->getChildPtr(retIdx);
-      }
+      static_cast<const BTreeNodeT &>(*this).searchPos(pos, retNode, retIdx);
     }
 
 
@@ -738,9 +726,6 @@ namespace itmmti
      const uint8_t idx
      ) {
       assert(idx < numChildren_);
-      {
-        std::cout << __FUNCTION__ << " " << lnode << " " << this << std::endl;
-      }
 
       const uint8_t lnum = lnode->getNumChildren();
       const uint8_t numToLeft = lnum/2 + kB/2 - lnum;
@@ -833,9 +818,6 @@ namespace itmmti
      const uint8_t idx
      ) {
       assert(idx < numChildren_);
-      {
-        std::cout << __FUNCTION__ << " " << lnode << " " << this << std::endl;
-      }
 
       uint64_t temp_weight;
       const uint8_t lnum = lnode->getNumChildren();
@@ -900,9 +882,6 @@ namespace itmmti
      ) {
       assert(numChildren_ == kB);
       assert(idx < kB);
-      {
-        std::cout << __FUNCTION__ << " " << this << " " << rnode << std::endl;
-      }
 
       uint64_t temp_weight;
 
@@ -1241,9 +1220,6 @@ namespace itmmti
       }
 
       { // This node has to be split.
-        {
-          std::cout << __FUNCTION__ << " split" << std::endl;
-        }
         auto newNode = new BTreeNode(children_[kB/2], false, true, this->isJumpToBtm(), this->isUnderSuperRoot());
         overflowToR_Btm(newNode, sndHalf, weight, idx);
         if (!isRoot()) {
