@@ -45,6 +45,7 @@ namespace itmmti
     //// Public constant, alias etc.
     using BTreeNodeT = BTreeNode<kB>;
     using SuperRootT = SuperRoot<BTreeNodeT>;
+    static constexpr uintptr_t NOTFOUND{UINTPTR_MAX};
 
 
   private:
@@ -58,13 +59,6 @@ namespace itmmti
       isJumpToBtmBit = 4, //!< If true, "lmJumpNode_" points to leftmost bottom node. Otherwise, it points to leftmost border node.
       isUnderSuperRootBit = 8, //!< This node is in a subtree whose root is a child of super root.
       isDummyBit = 16, //!< This node is a dummy node.
-    };
-
-
-  public:
-    //// Public constant, alias etc.
-    enum {
-      NOTFOUND = UINTPTR_MAX
     };
 
 
@@ -198,6 +192,14 @@ namespace itmmti
      */
     uint8_t getNumChildren() const noexcept {
       return numChildren_;
+    }
+
+
+    /*!
+     * @brief Judge if "this" represents NOTFOUND.
+     */
+    bool isNotFound() {
+      return (reinterpret_cast<uintptr_t>(this) == NOTFOUND);
     }
 
 
