@@ -90,7 +90,7 @@ namespace itmmti
     //// Constructor
     BTreeNode<kB>
     (
-     BTreeNodeT * lmJumpNode,
+     void * lmJumpNode,
      bool isRoot,
      bool isBorder,
      bool isJumpToBtm,
@@ -101,7 +101,7 @@ namespace itmmti
       idxInSibling_(0),
       numChildren_(0),
       flags_(isRoot * isRootBit | isBorder * isBorderBit | isJumpToBtm * isJumpToBtmBit | isUnderSuperRoot * isUnderSuperRootBit | isDummy * isDummyBit),
-      lmJumpNode_(lmJumpNode)
+      lmJumpNode_(reinterpret_cast<BTreeNodeT *>(lmJumpNode))
     {
       psum_[0] = 0;
       if (isBorder && !isJumpToBtm) {
@@ -209,14 +209,6 @@ namespace itmmti
 
 
     /*!
-     * @brief Judge if "this" represents NOTFOUND.
-     */
-    bool isNotFound() {
-      return (reinterpret_cast<uintptr_t>(this) == NOTFOUND);
-    }
-
-
-    /*!
      * @brief Return if this node is root.
      */
     bool isRoot() const noexcept {
@@ -257,12 +249,17 @@ namespace itmmti
 
 
   public:
-    //// function to traverse tree
+    //////////////////////////////// functions to traverse tree
     /*!
      * @brief Get leftmost jump node.
      * @node If "isJumpToBtm() == true", it points to leftmost bottom node. Otherwise, it points to leftmost border node.
      */
-    BTreeNodeT * getLmJumpNode() const noexcept {
+    const BTreeNodeT * getLmJumpNode() const noexcept {
+      return lmJumpNode_;
+    }
+
+
+    BTreeNodeT * getLmJumpNode() noexcept {
       return lmJumpNode_;
     }
 
@@ -270,6 +267,13 @@ namespace itmmti
     /*!
      * @brief Get leftmost border node. It takes O(1) time.
      */
+    const BTreeNodeT * getLmBorderNode_DirectJump() const noexcept {
+      assert(!isJumpToBtm());
+
+      return lmJumpNode_;
+    }
+
+
     BTreeNodeT * getLmBorderNode_DirectJump() noexcept {
       assert(!isJumpToBtm());
 
@@ -280,8 +284,8 @@ namespace itmmti
     /*!
      * @brief Get leftmost border node. It takes O(h) time, where h is the height of this node.
      */
-    BTreeNodeT * getLmBorderNode_NoDirectJump() noexcept {
-      auto * node = this;
+    const BTreeNodeT * getLmBorderNode_NoDirectJump() const noexcept {
+      const auto * node = this;
       while (!(node->isBorder())) {
         node = node->children_[0];
       }
@@ -289,11 +293,16 @@ namespace itmmti
     }
 
 
+    BTreeNodeT * getLmBorderNode_NoDirectJump() noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getLmBorderNode_NoDirectJump());
+    }
+
+
     /*!
      * @brief Get rightmost border node. It takes O(h) time, where h is the height of this node.
      */
-    BTreeNodeT * getRmBorderNode() noexcept {
-      auto * node = this;
+    const BTreeNodeT * getRmBorderNode() const noexcept {
+      const auto * node = this;
       while (!(node->isBorder())) {
         node = node->children_[node->numChildren_ - 1];
       }
@@ -301,10 +310,22 @@ namespace itmmti
     }
 
 
+    BTreeNodeT * getRmBorderNode() noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getRmBorderNode());
+    }
+
+
     /*!
      * @brief Get leftmost bottom. It takes O(1) time.
      */
-    BTreeNodeT * getLmBtm_DirectJump() const noexcept {
+    const BTreeNodeT * getLmBtm_DirectJump() const noexcept {
+      assert(isJumpToBtm());
+
+      return lmJumpNode_;
+    }
+
+
+    BTreeNodeT * getLmBtm_DirectJump() noexcept {
       assert(isJumpToBtm());
 
       return lmJumpNode_;
@@ -314,7 +335,14 @@ namespace itmmti
     /*!
      * @brief Get leftmost bottom. It takes O(1) time.
      */
-    BTreeNodeT * getLmBtm_NoDirectJump() const noexcept {
+    const BTreeNodeT * getLmBtm_NoDirectJump() const noexcept {
+      assert(!isJumpToBtm());
+
+      return lmJumpNode_->getChildPtr(0);
+    }
+
+
+    BTreeNodeT * getLmBtm_NoDirectJump() noexcept {
       assert(!isJumpToBtm());
 
       return lmJumpNode_->getChildPtr(0);
@@ -324,7 +352,7 @@ namespace itmmti
     /*!
      * @brief Get rightmost bottom. It takes O(h) time, where h is the height of this node.
      */
-    BTreeNodeT * getRmBtm() const noexcept {
+    const BTreeNodeT * getRmBtm() const noexcept {
       const auto * node = this;
       while (!(node->isBorder())) {
         node = node->children_[node->getNumChildren() - 1];
@@ -333,10 +361,15 @@ namespace itmmti
     }
 
 
+    BTreeNodeT * getRmBtm() noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getRmBtm());
+    }
+
+
     /*!
      * @brief Return next bottm starting from "idxInSib"-th child (0base) of this node.
      */
-    BTreeNodeT * getNextBtm_DirectJump
+    const BTreeNodeT * getNextBtm_DirectJump
     (
      uint8_t idxInSib
      ) const noexcept {
@@ -358,10 +391,18 @@ namespace itmmti
     }
 
 
+    BTreeNodeT * getNextBtm_DirectJump
+    (
+     uint8_t idxInSib
+     ) noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getNextBtm_DirectJump(idxInSib));
+    }
+
+
     /*!
      * @brief Return next bottm starting from "idxInSib"-th child (0base) of this node.
      */
-    BTreeNodeT * getNextBtm_NoDirectJump
+    const BTreeNodeT * getNextBtm_NoDirectJump
     (
      uint8_t idxInSib
      ) const noexcept {
@@ -383,10 +424,18 @@ namespace itmmti
     }
 
 
+    BTreeNodeT * getNextBtm_NoDirectJump
+    (
+     uint8_t idxInSib
+     ) noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getNextBtm_NoDirectJump(idxInSib));
+    }
+
+
     /*!
      * @brief Return previous bottm starting from "idxInSib"-th child (0base) of this node.
      */
-    BTreeNodeT * getPrevBtm
+    const BTreeNodeT * getPrevBtm
     (
      uint8_t idxInSib
      ) const noexcept {
@@ -406,13 +455,21 @@ namespace itmmti
     }
 
 
+    BTreeNodeT * getPrevBtm
+    (
+     uint8_t idxInSib
+     ) noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getPrevBtm(idxInSib));
+    }
+
+
     /*!
      * @brief Return next bottm starting from "idxInSib"-th child (0base) of this node.
      */
-    BTreeNodeT * getNextBtmRef_DirectJump
+    const BTreeNodeT * getNextBtmRef_DirectJump
     (
      uint8_t & idxInSib //!< [in,out]
-     ) noexcept {
+     ) const noexcept {
       assert(!isJumpToBtm());
 
       auto * node = this;
@@ -432,13 +489,21 @@ namespace itmmti
     }
 
 
-    /*!
-     * @brief Return next bottm starting from "idxInSib"-th child (0base) of this node.
-     */
-    BTreeNodeT * getNextBtmRef_NoDirectJump
+    BTreeNodeT * getNextBtmRef_DirectJump
     (
      uint8_t & idxInSib //!< [in,out]
      ) noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getNextBtmRef_DirectJump(idxInSib));
+    }
+
+
+    /*!
+     * @brief Return next bottm starting from "idxInSib"-th child (0base) of this node.
+     */
+    const BTreeNodeT * getNextBtmRef_NoDirectJump
+    (
+     uint8_t & idxInSib //!< [in,out]
+     ) const noexcept {
       assert(isJumpToBtm());
 
       auto * node = this;
@@ -458,13 +523,21 @@ namespace itmmti
     }
 
 
-    /*!
-     * @brief Return previous bottm starting from "idxInSib"-th child (0base) of this node.
-     */
-    BTreeNodeT * getPrevBtmRef
+    BTreeNodeT * getNextBtmRef_NoDirectJump
     (
      uint8_t & idxInSib //!< [in,out]
      ) noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getNextBtmRef_NoDirectJump(idxInSib));
+    }
+
+
+    /*!
+     * @brief Return previous bottm starting from "idxInSib"-th child (0base) of this node.
+     */
+    const BTreeNodeT * getPrevBtmRef
+    (
+     uint8_t & idxInSib //!< [in,out]
+     ) const noexcept {
       auto * node = this;
       while (idxInSib == 0 && !(node->isRoot())) {
         idxInSib = node->getIdxInSibling();
@@ -479,6 +552,14 @@ namespace itmmti
         return node;
       }
       return reinterpret_cast<BTreeNodeT *>(NOTFOUND);
+    }
+
+
+    BTreeNodeT * getPrevBtmRef
+    (
+     uint8_t & idxInSib //!< [in,out]
+     ) noexcept {
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).getPrevBtmRef(idxInSib));
     }
 
 
@@ -720,7 +801,7 @@ namespace itmmti
 
 
   private:
-    //// private modifier (intend to call them from member function of BTreeNode)
+    //////////////////////////////// private modifier (intend to call them from member function of BTreeNode)
     void overflowToL
     (
      BTreeNodeT * lnode,
@@ -929,18 +1010,18 @@ namespace itmmti
 
 
   public:
-    //// public modifier
+    //////////////////////////////// public modifier
     void setLmJumpNode
     (
-     BTreeNodeT * lmJumpNode
+     void * lmJumpNode
      ) noexcept {
-      lmJumpNode_ = lmJumpNode;
+      lmJumpNode_ = reinterpret_cast<BTreeNodeT *>(lmJumpNode);
     }
 
 
     void updateLmJumpNode
     (
-     BTreeNodeT * lmJumpNode
+     void * lmJumpNode
      ) noexcept {
       auto * node = this;
       while (true) {
@@ -1043,14 +1124,14 @@ namespace itmmti
      */
     void putBtm
     (
-     BTreeNodeT * child,
+     void * child,
      const uint8_t idx,
      const uint64_t weight
      ) noexcept {
       assert(isBorder());
       assert(idx < kB);
 
-      children_[idx] = child;
+      children_[idx] = reinterpret_cast<BTreeNodeT *>(child);
       psum_[idx + 1] = psum_[idx] + weight;
     }
 
@@ -1062,7 +1143,7 @@ namespace itmmti
      */
     void pushbackBtm
     (
-     BTreeNodeT * child,
+     void * child,
      const uint64_t weight
      ) noexcept {
       assert(isBorder());
@@ -1078,7 +1159,7 @@ namespace itmmti
      const uint64_t add_weight,
      const uint8_t idx, //!< Beginning idx to shift.
      const uint8_t shift
-     ) {
+     ) noexcept {
       assert(idx <= numChildren_);
       assert(numChildren_ + shift <= kB);
 
@@ -1099,7 +1180,7 @@ namespace itmmti
      const uint64_t add_weight,
      const uint8_t idx, //!< Beginning idx to shift.
      const uint8_t shift
-     ) {
+     ) noexcept {
       assert(idx <= numChildren_);
       assert(numChildren_ + shift <= kB);
 
@@ -1275,7 +1356,7 @@ namespace itmmti
      */
     void putFirstBtm
     (
-     BTreeNodeT * child,
+     void * child,
      const uint64_t weight
      ) noexcept {
       assert(isBorder());
