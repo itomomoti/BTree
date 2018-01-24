@@ -796,7 +796,21 @@ namespace itmmti
      BTreeNodeT *& retNode, //!< [out] To capture parent of returned bottom node.
      uint8_t & retIdx //!< [out] To capture sibling idx of returned bottom node.
      ) noexcept {
-      static_cast<const BTreeNodeT &>(*this).searchPos(pos, retNode, retIdx);
+      assert(pos < this->getSumOfWeight());
+
+      retNode = this;
+      while (true) {
+        retIdx = 0;
+        auto array = retNode->getConstPtr_psum();
+        while (pos >= array[retIdx + 1]) {
+          ++retIdx;
+        }
+        pos -= array[retIdx];
+        if (retNode->isBorder()) {
+          return;
+        }
+        retNode = retNode->getChildPtr(retIdx);
+      }
     }
 
 
