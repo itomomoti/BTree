@@ -51,11 +51,12 @@ namespace itmmti
    * @attention Bottom part of B+tree can be implemented in more space efficient way (e.g., using packed array to store weights).
    * @tparam kB should be in {4, 8, 16, 32, 64, 128}. kB/2 <= 'numChildren_' <= kB.
    */
-  template <uint8_t kB = 64>
+  template <uint8_t tparam_kB = 64>
   class BTreeNode
   {
   public:
     //// Public constant, alias etc.
+    static constexpr uint8_t kB{tparam_kB};
     using BTreeNodeT = BTreeNode<kB>;
     using SuperRootT = SuperRoot<BTreeNodeT>;
     static constexpr uintptr_t NOTFOUND{UINTPTR_MAX};
@@ -1082,7 +1083,7 @@ namespace itmmti
       auto * parent = this->getParent();
       if (parent != nullptr) {
         if (this->isUnderSuperRoot()) { // parent is super root
-          reinterpret_cast<BTreeNodeT::SuperRootT *>(parent)->setRoot(newRoot);
+          reinterpret_cast<SuperRootT *>(parent)->setRoot(newRoot);
         } else { // BTrees are stacked
           const auto idxInSib = this->getIdxInSibling();
           parent->setChildPtr(newRoot, idxInSib); // parent points to newRoot
