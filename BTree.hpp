@@ -89,7 +89,7 @@ namespace itmmti
 
   public:
     //// Constructor
-    BTreeNode<kB>
+    BTreeNode
     (
      void * lmJumpNode,
      bool isRoot,
@@ -109,9 +109,9 @@ namespace itmmti
         lmJumpNode_ = this;
       }
     }
-    ~BTreeNode<kB>() = default;
-    BTreeNode<kB>(const BTreeNode<kB> &) = delete;
-    BTreeNode<kB> & operator=(const BTreeNode<kB> &) = delete;
+    ~BTreeNode() = default;
+    BTreeNode(const BTreeNode &) = delete;
+    BTreeNode & operator=(const BTreeNode &) = delete;
 
 
     /*!
