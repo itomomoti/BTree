@@ -9,55 +9,38 @@
  * @brief Pointer-based implementation of upper part of B+tree.
  * @attention Bottom part of B+tree can be implemented in more space efficient way (e.g., array-based implementation).
  * @author Tomohiro I
- * @date 2017-01-26
+ * @date 2018-02-20
  * @todo Support delete.
  */
-#ifndef INCLUDE_GUARD_BTree
-#define INCLUDE_GUARD_BTree
+#ifndef INCLUDE_GUARD_MultiRowBTree
+#define INCLUDE_GUARD_MultiRowBTree
 
 #include <algorithm>
 #include <cassert>
 #include <iostream>
 
+#include "BTree.hpp"
+
 namespace itmmti
 {
-  template<class BTreeNodeT>
-  struct SuperRoot
-  {
-    BTreeNodeT * root_;
-
-
-    SuperRoot() : root_(nullptr)
-    {}
-
-
-    void setRoot
-    (
-     BTreeNodeT * root
-     ) noexcept {
-      assert(root->isRoot());
-      assert(root->isUnderSuperRoot());
-
-      root_ = root;
-      root->setParentRef(reinterpret_cast<BTreeNodeT *>(this), root->getIdxInSibling());
-    }
-  };
-
-
-
-  
   /*!
    * @brief Pointer-based implementation of upper part of B+tree.
    * @attention Bottom part of B+tree can be implemented in more space efficient way (e.g., using packed array to store weights).
    * @tparam kB should be in {4, 8, 16, 32, 64, 128}. kB/2 <= 'numChildren_' <= kB.
    */
-  template <uint8_t tparam_kB = 64>
-  class BTreeNode
+  template
+  <
+    uint8_t tparam_kB = 64,
+    uint8_t tparam_kNumRow = 2,
+    typename ColumnT = std::array<uint64_t, tparam_kNumRow>
+    >
+  class MultiRowBTreeNode
   {
   public:
     //// Public constant, alias etc.
     static constexpr uint8_t kB{tparam_kB};
-    using BTreeNodeT = BTreeNode<kB>;
+    static constexpr uint8_t kNumRow{tparam_kNumRow};
+    using BTreeNodeT = MultiRowBTreeNode<kB, kNumRow>;
     using SuperRootT = SuperRoot<BTreeNodeT>;
     static constexpr uintptr_t NOTFOUND{UINTPTR_MAX};
 
@@ -78,7 +61,7 @@ namespace itmmti
 
   private:
     //// Private member variables
-    uint64_t psum_[kB+1]; //!< Partial sum: psum_[i+1] = sum_{i = 0}^{i} [weight of i-th child (0base)]
+    uint64_t psum_[kNumRow][kB+1]; //!< Partial sum: psum_[i+1] = sum_{i = 0}^{i} [weight of i-th child (0base)]
     BTreeNodeT * parent_; //!< Pointer to parent node.
     uint8_t idxInSibling_; //!< This node is 'idxInSibling_'-th child (0base) of its parent.
     uint8_t numChildren_; //!< Current num of children.
@@ -89,7 +72,7 @@ namespace itmmti
 
   public:
     //// Constructor
-    BTreeNode<kB>
+    MultiRowBTreeNode<kB, kNumRow>
     (
      void * lmJumpNode,
      bool isRoot,
@@ -109,9 +92,9 @@ namespace itmmti
         lmJumpNode_ = this;
       }
     }
-    ~BTreeNode<kB>() = default;
-    BTreeNode<kB>(const BTreeNode<kB> &) = delete;
-    BTreeNode<kB> & operator=(const BTreeNode<kB> &) = delete;
+    ~MultiRowBTreeNode<kB, kNumRow>() = default;
+    MultiRowBTreeNode<kB, kNumRow>(const BTreeNode<kB> &) = delete;
+    MultiRowBTreeNode<kB, kNumRow> & operator=(const BTreeNode<kB> &) = delete;
 
 
     /*!
@@ -133,42 +116,69 @@ namespace itmmti
     /*!
      * @brief Get the sum of weights of child subtrees numbered from 0 to i-1 (note that i is NOT included).
      */
+    template<uint8_t row>
     uint64_t getPSum
     (
      const uint8_t idx_excl //!< in [0.."numChildren_"].
      ) const noexcept {
+      static_assert(row < kNumRow, "row must be smaller than kNumRow.");
       assert(idx_excl <= numChildren_);
 
-      return psum_[idx_excl];
+      return psum_[row][idx_excl];
     }
 
 
     /*!
      * @brief Get the weight of a child subtree.
      */
+    template<uint8_t row>
     uint64_t getWeightOfChild
+    (
+     const uint8_t idx //!< in [0.."numChildren_").
+     ) const noexcept {
+      static_assert(row < kNumRow, "row must be smaller than kNumRow.");
+      assert(idx < numChildren_);
+
+      return psum_[row][idx+1] - psum_[row][idx];
+    }
+
+
+    /*!
+     * @brief Get the weight of a child subtree.
+     */
+    ColumnT getColumn
     (
      const uint8_t idx //!< in [0.."numChildren_").
      ) const noexcept {
       assert(idx < numChildren_);
 
-      return psum_[idx+1] - psum_[idx];
+      ColumnT ret;
+      for (uint8_t r = 0; r < kNumRow; ++r) {
+        ret[r] = psum_[r][idx+1] - psum_[r][idx];
+      }
+      return ret;
     }
 
 
     /*!
      * @brief Get const psum array.
      */
-    const uint64_t * getConstPtr_psum () const noexcept {
-      return psum_;
+    template<uint8_t row>
+    const uint64_t * getConstPtr_psum() const noexcept {
+      static_assert(row < kNumRow, "row must be smaller than kNumRow.");
+
+      return psum_[row];
     }
 
 
     /*!
      * @brief Get the weight of this node.
      */
+    template<uint8_t row>
     uint64_t getSumOfWeight() const noexcept {
-      return psum_[numChildren_];
+      static_assert(row < kNumRow, "row must be smaller than kNumRow.");
+
+      return psum_[row][numChildren_];
     }
 
 
@@ -629,95 +639,71 @@ namespace itmmti
      *   Return partial sum (or row number "ROW") up to the node
      *   (inclusive iff "inclusive == true") indicated by "idx"-th child (0base) of this node.
      */
-    /*
-      template<uint8_t ROW>
-      uint64_t calcPSum
-      (
-      uint8_t idx,
-      bool inclusive = false
-      ) const noexcept {
-      static_assert(ROW < ROW_NUM, "ROW should be smaller than ROW_NUM");
-      assert(isBorder());
-
-      const auto * node = this;
-      uint64_t ret = 0;
-      while (true) {
-      ret += node->getPSum<ROW>(idx + inclusive);
-      if (node->isRoot()) {
-      return ret;
-      }
-      idx = node->getIdxInSibling();
-      node = node->getParent();
-      }
-      }
-    */
-
-
-    /*!
-     * @brief Return partial sum up to the node (exclusive) indicated by "idx"-th child (0base) of this node.
-     */
+    template<uint8_t row>
     uint64_t calcPSum
     (
-     uint8_t idx
+     uint8_t idx,
+     bool inclusive = false
      ) const noexcept {
+      static_assert(row < kNumRow, "row should be smaller than ROW_NUM");
       assert(isBorder());
 
+      uint64_t ret = this->getPSum<row>(idx + inclusive);
       const auto * node = this;
-      uint64_t ret = 0;
-      while (true) {
-        ret += node->getPSum(idx);
-        if (node->isRoot()) {
-          return ret;
-        }
+      while (!node->isRoot()) {
         idx = node->getIdxInSibling();
         node = node->getParent();
+        ret += node->getPSum<row>(idx);
       }
+      return ret;
     }
 
 
     /*!
      * @brief Return partial sum up to the node (exclusive) indicated by "idx"-th child (0base) of this node.
      */
+    template<uint8_t row>
     uint64_t calcPSum
     (
      uint8_t idx,
-     const BTreeNodeT *& retNode //!< [out] To capture the root of the BTree.
+     const BTreeNodeT *& retNode, //!< [out] To capture the root of the BTree.
+     bool inclusive = false
      ) const noexcept {
+      static_assert(row < kNumRow, "row should be smaller than ROW_NUM");
       assert(isBorder());
 
+      uint64_t ret = this->getPSum<row>(idx + inclusive);
       retNode = this;
-      uint64_t ret = 0;
-      while (true) {
-        ret += retNode->getPSum(idx);
-        if (retNode->isRoot()) {
-          return ret;
-        }
+      while (!retNode->isRoot()) {
         idx = retNode->getIdxInSibling();
         retNode = retNode->getParent();
+        ret += retNode->getPSum<row>(idx);
       }
+      return ret;
     }
 
 
     /*!
      * @brief Return partial sum up to the node (exclusive) indicated by "idx"-th child (0base) of this node.
      */
+    template<uint8_t row>
     uint64_t calcPSum
     (
      uint8_t idx,
-     BTreeNodeT *& retNode //!< [out] To capture the root of the BTree.
+     BTreeNodeT *& retNode, //!< [out] To capture the root of the BTree.
+     bool inclusive = false
      ) noexcept {
+      static_assert(row < kNumRow, "row should be smaller than ROW_NUM");
       assert(isBorder());
 
+      uint64_t ret = this->getPSum<row>(idx + inclusive);
       retNode = this;
-      uint64_t ret = 0;
-      while (true) {
-        ret += retNode->getPSum(idx);
-        if (retNode->isRoot()) {
-          return ret;
-        }
+      while (!retNode->isRoot()) {
         idx = retNode->getIdxInSibling();
         retNode = retNode->getParent();
+        ret += retNode->getPSum<row>(idx);
       }
+      return ret;
     }
 
 
@@ -725,16 +711,18 @@ namespace itmmti
      * @brief Traverse tree looking for "pos" in weights array.
      * @return Pointer to bottom node where partial sum of "pos" is achieved, where weight-0 nodes (e.g. dummy nodes) are skipped.
      */
+    template<uint8_t row>
     const BTreeNodeT * searchPos
     (
      uint64_t & pos //!< [in,out] Give global position to search. It is modified to relative position in bottom node.
      ) const noexcept {
+      static_assert(row < kNumRow, "row should be smaller than ROW_NUM");
       assert(pos < this->getSumOfWeight());
 
       const BTreeNodeT * node = this;
       while (true) {
         uint8_t i = 0;
-        auto array = node->getConstPtr_psum();
+        auto array = node->template getConstPtr_psum<row>();
         while (pos >= array[i + 1]) {
           ++i;
         }
@@ -751,11 +739,12 @@ namespace itmmti
      * @brief Traverse tree looking for "pos" in weights array.
      * @return Pointer to bottom node where partial sum of "pos" is achieved, where weight-0 nodes (e.g. dummy nodes) are skipped.
      */
+    template<uint8_t row>
     BTreeNodeT * searchPos
     (
      uint64_t & pos //!< [in,out] Give global position to search. It is modified to relative position in bottom node.
      ) noexcept {
-      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).searchPos(pos));
+      return const_cast<BTreeNodeT *>(static_cast<const BTreeNodeT &>(*this).searchPos<row>(pos));
     }
 
 
@@ -763,18 +752,20 @@ namespace itmmti
      * @brief Traverse tree looking for "pos" in weights array.
      * @return Pointer to bottom node where partial sum of "pos" is achieved, where weight-0 nodes (e.g. dummy nodes) are skipped.
      */
+    template<uint8_t row>
     void searchPos
     (
      uint64_t & pos, //!< [in,out] Give global position to search. It is modified to relative position in bottom node.
      const BTreeNodeT *& retNode, //!< [out] To capture parent of returned bottom node.
      uint8_t & retIdx //!< [out] To capture sibling idx of returned bottom node.
      ) const noexcept {
+      static_assert(row < kNumRow, "row should be smaller than ROW_NUM");
       assert(pos < this->getSumOfWeight());
 
       retNode = this;
       while (true) {
         retIdx = 0;
-        auto array = retNode->getConstPtr_psum();
+        auto array = retNode->template getConstPtr_psum<row>();
         while (pos >= array[retIdx + 1]) {
           ++retIdx;
         }
@@ -791,18 +782,20 @@ namespace itmmti
      * @brief Traverse tree looking for "pos" in weights array.
      * @return Pointer to bottom node where partial sum of "pos" is achieved, where weight-0 nodes (e.g. dummy nodes) are skipped.
      */
+    template<uint8_t row>
     void searchPos
     (
      uint64_t & pos, //!< [in,out] Give global position to search. It is modified to relative position in bottom node.
      BTreeNodeT *& retNode, //!< [out] To capture parent of returned bottom node.
      uint8_t & retIdx //!< [out] To capture sibling idx of returned bottom node.
      ) noexcept {
+      static_assert(row < kNumRow, "row should be smaller than ROW_NUM");
       assert(pos < this->getSumOfWeight());
 
       retNode = this;
       while (true) {
         retIdx = 0;
-        auto array = retNode->getConstPtr_psum();
+        auto array = retNode->template getConstPtr_psum<row>();
         while (pos >= array[retIdx + 1]) {
           ++retIdx;
         }
@@ -912,28 +905,30 @@ namespace itmmti
     (
      BTreeNodeT * lnode,
      BTreeNodeT * sndHalf,
-     const uint64_t weight,
+     const ColumnT weight,
      const uint8_t idx
      ) {
       assert(idx < numChildren_);
 
-      uint64_t temp_weight;
       const uint8_t lnum = lnode->getNumChildren();
       const uint8_t numToLeft = lnum/2 + kB/2 - lnum;
       const bool idxIsInLeft = idx < numToLeft;
       { // update lnode (possibly first part)
         const auto stop = (idxIsInLeft)? idx : numToLeft;
         for (uint8_t i = 0; i < stop; ++i) {
-          temp_weight = getWeightOfChild(i);
+          auto temp_weight = getColumn(i);
           lnode->pushbackBtm(children_[i], temp_weight);
         }
       }
       if (idxIsInLeft) { // update lnode (second part)
-        temp_weight = getWeightOfChild(idx) - weight;
+        auto temp_weight = getColumn(idx);
+        for (uint8_t r = 0; r < kNumRow; ++r) {
+          temp_weight[r] -= weight[r];
+        }
         lnode->pushbackBtm(children_[idx], temp_weight);
         lnode->pushbackBtm(sndHalf, weight);
         for (uint8_t i = idx + 1; i < numToLeft; ++i) {
-          temp_weight = getWeightOfChild(i);
+          temp_weight = getColumn(i);
           lnode->pushbackBtm(children_[i], temp_weight);
         }
       }
@@ -941,24 +936,31 @@ namespace itmmti
       { // update this node (possibly first part)
         const auto stop = (idxIsInLeft)? numChildren_ : idx;
         for (uint8_t i = numToLeft; i < stop; ++i) {
-          temp_weight = getWeightOfChild(i);
+          auto temp_weight = getColumn(i);
           putBtm(children_[i], i - numToLeft, temp_weight);
         }
       }
       if (!idxIsInLeft) { // update this node (second part)
-        temp_weight = getWeightOfChild(idx) - weight;
+        auto temp_weight = getColumn(idx);
+        for (uint8_t r = 0; r < kNumRow; ++r) {
+          temp_weight[r] -= weight[r];
+        }
         putBtm(children_[idx], idx - numToLeft, temp_weight);
         if (numToLeft != 1) {
           putBtm(sndHalf, idx + 1 - numToLeft, weight);
           for (uint8_t i = idx + 1; i < numChildren_; ++i) {
-            temp_weight = getWeightOfChild(i);
+            temp_weight = getColumn(i);
             putBtm(children_[i], i - numToLeft + 1, temp_weight);
           }
         } else { // need special treatment when numToLeft == 1
-          temp_weight = psum_[idx + 1] - (psum_[idx] + weight); // This amount is equivalent to original psum_[1] (that is moved to lnode)
+          for (uint8_t r = 0; r < kNumRow; ++r) {
+            temp_weight[r] = psum_[r][idx + 1] - (psum_[r][idx] + weight[r]); // This amount is equivalent to original psum_[1] (that is moved to lnode)
+          }
           putBtm(sndHalf, idx, weight);
-          for (uint8_t i = idx + 2; i <= numChildren_; ++i) {
-            psum_[i] -= temp_weight;
+          for (uint8_t r = 0; r < kNumRow; ++r) {
+            for (uint8_t i = idx + 2; i <= numChildren_; ++i) {
+              psum_[r][i] -= temp_weight[r];
+            }
           }
         }
       }
@@ -975,44 +977,54 @@ namespace itmmti
     (
      BTreeNodeT * rnode,
      BTreeNodeT * sndHalf,
-     const uint64_t weight,
+     const ColumnT weight,
      const uint8_t idx
      ) {
       assert(numChildren_ == kB);
       assert(idx < kB);
 
-      uint64_t temp_weight;
+      ColumnT temp_weight;
 
       const uint8_t rnum = rnode->getNumChildren();
       const uint8_t leftEnd = rnum/2 + kB/2;
       const bool idxIsInLeft = idx < leftEnd;
       { // shift elements in rnode
         const uint8_t shift = kB - leftEnd + !idxIsInLeft;
-        temp_weight = psum_[kB] - psum_[leftEnd];
+        for (uint8_t r = 0; r < kNumRow; ++r) {
+          temp_weight[r] = psum_[r][kB] - psum_[r][leftEnd];
+        }
         rnode->shiftR_Btm(temp_weight, 0, shift);
       }
       { // move elements in this node to rnode (possibly first part)
         const auto stop = (idxIsInLeft)? kB : idx;
         for (uint8_t i = leftEnd; i < stop; ++i) {
-          temp_weight = getWeightOfChild(i);
+          temp_weight = getColumn(i);
           rnode->putBtm(children_[i], i - leftEnd, temp_weight);
         }
       }
       if (!idxIsInLeft) { // move elements in this node to rnode (second part)
-        temp_weight = getWeightOfChild(idx) - weight;
+        temp_weight = getColumn(idx);
+        for (uint8_t r = 0; r < kNumRow; ++r) {
+          temp_weight[r] -= weight[r];
+        }
         rnode->putBtm(children_[idx], idx - leftEnd, temp_weight);
         rnode->putBtm(sndHalf, idx + 1 - leftEnd, weight);
         for (uint8_t i = idx + 1; i < kB; ++i) {
-          temp_weight = getWeightOfChild(i);
+          temp_weight = getColumn(i);
           rnode->putBtm(children_[i], i + 1 - leftEnd, temp_weight);
         }
       }
 
       { // update this node
+        for (uint8_t r = 0; r < kNumRow; ++r) {
+          temp_weight[r] = 0;
+        }
         numChildren_ = leftEnd;
         if (idxIsInLeft) {
-          psum_[idx + 1] -= weight;
-          shiftR_Btm(0, idx + 1, 1);
+          for (uint8_t r = 0; r < kNumRow; ++r) {
+            psum_[r][idx + 1] -= weight[r];
+          }
+          shiftR_Btm(temp_weight, idx + 1, 1);
           putBtm(sndHalf, idx + 1, weight);
         }
       }
@@ -1110,7 +1122,9 @@ namespace itmmti
       assert(idx < kB);
 
       children_[idx] = child;
-      psum_[idx + 1] = psum_[idx] + child->getSumOfWeight();
+      for (uint8_t r = 0; r < kNumRow; ++r) {
+        psum_[r][idx + 1] = psum_[r][idx] + child->template getSumOfWeight<r>();
+      }
       child->setParentRef(this, idx);
     }
 
@@ -1141,13 +1155,15 @@ namespace itmmti
     (
      void * child,
      const uint8_t idx,
-     const uint64_t weight
+     const ColumnT weight
      ) noexcept {
       assert(isBorder());
       assert(idx < kB);
 
       children_[idx] = reinterpret_cast<BTreeNodeT *>(child);
-      psum_[idx + 1] = psum_[idx] + weight;
+      for (uint8_t r = 0; r < kNumRow; ++r) {
+        psum_[r][idx + 1] = psum_[r][idx] + weight[r];
+      }
     }
 
 
@@ -1159,7 +1175,7 @@ namespace itmmti
     void pushbackBtm
     (
      void * child,
-     const uint64_t weight
+     const ColumnT weight
      ) noexcept {
       assert(isBorder());
       assert(numChildren_ < kB);
@@ -1171,7 +1187,7 @@ namespace itmmti
 
     void shiftR
     (
-     const uint64_t add_weight,
+     const ColumnT add_weight,
      const uint8_t idx, //!< Beginning idx to shift.
      const uint8_t shift
      ) noexcept {
@@ -1183,8 +1199,10 @@ namespace itmmti
         children_[i + shift - 1] = child;
         child->idxInSibling_ = i + shift - 1;
       }
-      for (uint8_t i = numChildren_; idx < i; --i) {
-        psum_[i + shift] = psum_[i] + add_weight;
+      for (uint8_t r = 0; r < kNumRow; ++r) {
+        for (uint8_t i = numChildren_; idx < i; --i) {
+          psum_[r][i + shift] = psum_[r][i] + add_weight[r];
+        }
       }
       numChildren_ += shift;
     }
@@ -1192,7 +1210,7 @@ namespace itmmti
 
     void shiftR_Btm
     (
-     const uint64_t add_weight,
+     const ColumnT add_weight,
      const uint8_t idx, //!< Beginning idx to shift.
      const uint8_t shift
      ) noexcept {
@@ -1202,8 +1220,10 @@ namespace itmmti
       for (uint8_t i = numChildren_; idx < i; --i) {
         children_[i + shift - 1] = children_[i-1];
       }
-      for (uint8_t i = numChildren_; idx < i; --i) {
-        psum_[i + shift] = psum_[i] + add_weight;
+      for (uint8_t r = 0; r < kNumRow; ++r) {
+        for (uint8_t i = numChildren_; idx < i; --i) {
+          psum_[r][i + shift] = psum_[r][i] + add_weight[r];
+        }
       }
       numChildren_ += shift;
     }
@@ -1239,8 +1259,10 @@ namespace itmmti
           if (lnode->getNumChildren() < kB - 1) { // Previous sibling is not full. (-1 for easier implementation)
             overflowToL(lnode, sndHalf, idx);
             if (!(this->isRoot())) {
-              const uint64_t psum = parent_->getPSum(idxInSibling_ - 1) + lnode->getSumOfWeight(); // psum value for lnode in its parent
-              parent_->changePSumAt(idxInSibling_ - 1, psum);
+              for (uint8_t r = 0; r < kNumRow; ++r) {
+                const uint64_t psum = parent_->getPSum<r>(idxInSibling_ - 1) + lnode->template getSumOfWeight<r>(); // psum value for lnode in its parent
+                parent_->changePSumAt<r>(idxInSibling_ - 1, psum);
+              }
             }
             return;
           }
@@ -1250,8 +1272,10 @@ namespace itmmti
           if (rnode->getNumChildren() < kB - 1) { // Next sibling is not full. (-1 for easier implementation)
             overflowToR(rnode, sndHalf, idx);
             if (!(this->isRoot())) {
-              const uint64_t psum = parent_->getPSum(idxInSibling_) + this->getSumOfWeight(); // psum value for this node in its parent
-              parent_->changePSumAt(idxInSibling_, psum);
+              for (uint8_t r = 0; r < kNumRow; ++r) {
+                const uint64_t psum = parent_->getPSum<r>(idxInSibling_) + this->template getSumOfWeight<r>(); // psum value for this node in its parent
+                parent_->changePSumAt<r>(idxInSibling_, psum);
+              }
             }
             return;
           }
@@ -1276,268 +1300,269 @@ namespace itmmti
      * @brief Merge children of rnode into this node
      * @attention children of "this" node should be BTreeNodeT type.
      */
-    void mergeBTreeChildrenWithOneDelete
-    (
-     BTreeNodeT * rnode,
-     const uint8_t idx,
-     const bool isIdxOfLeft
-     ) {
-      assert(isBorder());
-      assert(static_cast<uint16_t>(idx) < static_cast<uint16_t>(kB) * 2);
+    // void mergeBTreeChildrenWithOneDelete
+    // (
+    //  BTreeNodeT * rnode,
+    //  const uint8_t idx,
+    //  const bool isIdxOfLeft
+    //  ) {
+    //   assert(isBorder());
+    //   assert(static_cast<uint16_t>(idx) < static_cast<uint16_t>(kB) * 2);
 
-      const auto rnum = rnode->getNumChildren();
-      if (isIdxOfLeft) {
-        const auto lnum = this->getNumChildren();
-        for (uint8_t i = idx + 1; i < lnum; ++i) {
-          putBTreeNode(children_[i], i - 1);
-        }
-        --numChildren_;
-        for (uint8_t i = 0; i < rnum; ++i) {
-          pushbackBTreeNode(rnode->getChildPtr(i));
-        }
-      } else {
-        for (uint8_t i = 0; i < idx; ++i) {
-          pushbackBTreeNode(rnode->getChildPtr(i));
-        }
-        for (uint8_t i = idx + 1; i < rnum; ++i) {
-          pushbackBTreeNode(rnode->getChildPtr(i));
-        }
-      }
-    }
+    //   const auto rnum = rnode->getNumChildren();
+    //   if (isIdxOfLeft) {
+    //     const auto lnum = this->getNumChildren();
+    //     for (uint8_t i = idx + 1; i < lnum; ++i) {
+    //       putBTreeNode(children_[i], i - 1);
+    //     }
+    //     --numChildren_;
+    //     for (uint8_t i = 0; i < rnum; ++i) {
+    //       pushbackBTreeNode(rnode->getChildPtr(i));
+    //     }
+    //   } else {
+    //     for (uint8_t i = 0; i < idx; ++i) {
+    //       pushbackBTreeNode(rnode->getChildPtr(i));
+    //     }
+    //     for (uint8_t i = idx + 1; i < rnum; ++i) {
+    //       pushbackBTreeNode(rnode->getChildPtr(i));
+    //     }
+    //   }
+    // }
 
 
     /*!
      * @brief Handle deletion of bottom child at idx
      * @attention assume that tree will not be empty
      */
-    void handleDeleteOfChild
-    (
-     const uint8_t idx
-     ) {
-      assert(isBorder());
-      assert(idx <= numChildren_);
+    // void handleDeleteOfChild
+    // (
+    //  const uint8_t idx
+    //  ) {
+    //   assert(isBorder());
+    //   assert(idx <= numChildren_);
 
-      const uint8_t num_new = numChildren_ - 1;
-      if (num_new == 0) {
-        parent_->handleDeleteOfChild(idxInSibling_);
-        delete this;
-        return;
-      }
-      if (!isRoot() && num_new < kB / 2) {
-        if (idxInSibling_) { // Check previous sibling if it can be merged
-          auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
-          const uint16_t lnum = lnode->getNumChildren();
-          if (lnum + num_new <= 3 * kB / 4) {
-            lnode->mergeWithOneDelete(this, idx, false);
-            parent_->changePSumAt(idxInSibling_ - 1, parent_->getPSum(idxInSibling_) + parent_->getWeightOfChild(idxInSibling_));
-            parent_->changePSumAt(idxInSibling_, 0);
-            parent_->handleDeleteOfChild(idxInSibling_);
-            delete this;
-            return;
-          }
-        }
-        if (idxInSibling_ + 1 < parent_->getNumChildren()) { // Check next sibling if it can be merged
-          auto rnode = parent_->getChildPtr(idxInSibling_ + 1);
-          const uint16_t rnum = rnode->getNumChildren();
-          if (rnum + num_new <= 3 * kB / 4) {
-            this->mergeBTreeChildrenWithOneDelete(rnode, idx, true);
-            parent_->changePSumAt(idxInSibling_, parent_->getPSum(idxInSibling_ + 1) + parent_->getWeightOfChild(idxInSibling_ + 1));
-            parent_->changePSumAt(idxInSibling_ + 1, 0);
-            parent_->handleDeleteOfChild(idxInSibling_);
-            delete rnode;
-            return;
-          }
-        }
-      }
+    //   const uint8_t num_new = numChildren_ - 1;
+    //   if (num_new == 0) {
+    //     parent_->handleDeleteOfChild(idxInSibling_);
+    //     delete this;
+    //     return;
+    //   }
+    //   if (!isRoot() && num_new < kB / 2) {
+    //     if (idxInSibling_) { // Check previous sibling if it can be merged
+    //       auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
+    //       const uint16_t lnum = lnode->getNumChildren();
+    //       if (lnum + num_new <= 3 * kB / 4) {
+    //         lnode->mergeWithOneDelete(this, idx, false);
+    //         parent_->changePSumAt(idxInSibling_ - 1, parent_->getPSum(idxInSibling_) + parent_->getWeightOfChild(idxInSibling_));
+    //         parent_->changePSumAt(idxInSibling_, 0);
+    //         parent_->handleDeleteOfChild(idxInSibling_);
+    //         delete this;
+    //         return;
+    //       }
+    //     }
+    //     if (idxInSibling_ + 1 < parent_->getNumChildren()) { // Check next sibling if it can be merged
+    //       auto rnode = parent_->getChildPtr(idxInSibling_ + 1);
+    //       const uint16_t rnum = rnode->getNumChildren();
+    //       if (rnum + num_new <= 3 * kB / 4) {
+    //         this->mergeBTreeChildrenWithOneDelete(rnode, idx, true);
+    //         parent_->changePSumAt(idxInSibling_, parent_->getPSum(idxInSibling_ + 1) + parent_->getWeightOfChild(idxInSibling_ + 1));
+    //         parent_->changePSumAt(idxInSibling_ + 1, 0);
+    //         parent_->handleDeleteOfChild(idxInSibling_);
+    //         delete rnode;
+    //         return;
+    //       }
+    //     }
+    //   }
 
-      // {//debug
-      //   std::cout << __FUNCTION__ << ": easy case" << std::endl;
-      // }
-      for (uint8_t i = idx + 1; i < numChildren_; ++i) {
-        putBTreeNode(children_[i], i - 1);
-      }
-      numChildren_ = num_new;
+    //   // {//debug
+    //   //   std::cout << __FUNCTION__ << ": easy case" << std::endl;
+    //   // }
+    //   for (uint8_t i = idx + 1; i < numChildren_; ++i) {
+    //     putBTreeNode(children_[i], i - 1);
+    //   }
+    //   numChildren_ = num_new;
 
-      if (isRoot() && num_new == 1 && parent_ != nullptr) {
-        BTreeNodeT * newRoot = children_[0];
-        newRoot->setParentRef(parent_, idxInSibling_);
-        if (this->isUnderSuperRoot()) {
-          reinterpret_cast<SuperRootT *>(parent_)->setRoot(newRoot);
-        } else {
-          parent_->setChildPtr(newRoot, idxInSibling_);
-        }
-      }
-    }
+    //   if (isRoot() && num_new == 1 && parent_ != nullptr) {
+    //     BTreeNodeT * newRoot = children_[0];
+    //     newRoot->setParentRef(parent_, idxInSibling_);
+    //     if (this->isUnderSuperRoot()) {
+    //       reinterpret_cast<SuperRootT *>(parent_)->setRoot(newRoot);
+    //     } else {
+    //       parent_->setChildPtr(newRoot, idxInSibling_);
+    //     }
+    //   }
+    // }
 
 
     /*!
      * @brief Handle the situation where 'children_[idx]' is split to 'children_[idx]' and 'sndHalf' when child node is not ::BTreeNode type.
      */
-    uint8_t handleSplitOfBtm
-    (
-     BTreeNodeT * sndHalf,
-     const uint64_t weight,
-     const uint8_t idx
-     ) {
-      assert(isBorder());
-      assert(idx <= numChildren_);
+    // uint8_t handleSplitOfBtm
+    // (
+    //  BTreeNodeT * sndHalf,
+    //  const uint64_t weight,
+    //  const uint8_t idx
+    //  ) {
+    //   assert(isBorder());
+    //   assert(idx <= numChildren_);
 
-      if (numChildren_ < kB) { // Easy case: Current node is not full.
-        psum_[idx + 1] -= weight;
-        shiftR_Btm(0, idx + 1, 1);
-        putBtm(sndHalf, idx + 1, weight);
-        return 0;
-      }
+    //   if (numChildren_ < kB) { // Easy case: Current node is not full.
+    //     psum_[idx + 1] -= weight;
+    //     shiftR_Btm(0, idx + 1, 1);
+    //     putBtm(sndHalf, idx + 1, weight);
+    //     return 0;
+    //   }
 
-      if (!isRoot()) {
-        // Check siblings if they have space.
-        if (idxInSibling_) { // Check previous sibling.
-          auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
-          const uint8_t lnum = lnode->getNumChildren();
-          if (lnum < kB - 1) { // Previous sibling is not full. (-1 for easier implementation)
-            overflowToL_Btm(lnode, sndHalf, weight, idx);
-            if (!(this->isRoot())) {
-              const uint64_t psum = parent_->getPSum(idxInSibling_ - 1) + lnode->getSumOfWeight(); // psum value for lnode in its parent
-              parent_->changePSumAt(idxInSibling_ - 1, psum);
-            }
-            return lnum/2 + kB/2 - lnum; // return "numToLeft" in overflowTL_Btm. Actual number of increase of lnode is "numToLeft + (idx < numToLeft)".
-          }
-        }
-        if (idxInSibling_ + 1 < parent_->getNumChildren()) { // Check next sibling.
-          auto rnode = parent_->getChildPtr(idxInSibling_ + 1);
-          if (rnode->getNumChildren() < kB - 1) { // Next sibling is not full. (-1 for easier implementation)
-            overflowToR_Btm(rnode, sndHalf, weight, idx);
-            if (!(this->isRoot())) {
-              const uint64_t psum = parent_->getPSum(idxInSibling_) + this->getSumOfWeight(); // psum value for this node in its parent
-              parent_->changePSumAt(idxInSibling_, psum);
-            }
-            return 0;
-          }
-        }
-      }
+    //   if (!isRoot()) {
+    //     // Check siblings if they have space.
+    //     if (idxInSibling_) { // Check previous sibling.
+    //       auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
+    //       const uint8_t lnum = lnode->getNumChildren();
+    //       if (lnum < kB - 1) { // Previous sibling is not full. (-1 for easier implementation)
+    //         overflowToL_Btm(lnode, sndHalf, weight, idx);
+    //         if (!(this->isRoot())) {
+    //           const uint64_t psum = parent_->getPSum(idxInSibling_ - 1) + lnode->getSumOfWeight(); // psum value for lnode in its parent
+    //           parent_->changePSumAt(idxInSibling_ - 1, psum);
+    //         }
+    //         return lnum/2 + kB/2 - lnum; // return "numToLeft" in overflowTL_Btm. Actual number of increase of lnode is "numToLeft + (idx < numToLeft)".
+    //       }
+    //     }
+    //     if (idxInSibling_ + 1 < parent_->getNumChildren()) { // Check next sibling.
+    //       auto rnode = parent_->getChildPtr(idxInSibling_ + 1);
+    //       if (rnode->getNumChildren() < kB - 1) { // Next sibling is not full. (-1 for easier implementation)
+    //         overflowToR_Btm(rnode, sndHalf, weight, idx);
+    //         if (!(this->isRoot())) {
+    //           const uint64_t psum = parent_->getPSum(idxInSibling_) + this->getSumOfWeight(); // psum value for this node in its parent
+    //           parent_->changePSumAt(idxInSibling_, psum);
+    //         }
+    //         return 0;
+    //       }
+    //     }
+    //   }
 
-      { // This node has to be split.
-        auto newNode = new BTreeNode(children_[kB/2], false, true, this->isJumpToBtm(), this->isUnderSuperRoot());
-        overflowToR_Btm(newNode, sndHalf, weight, idx);
-        if (!isRoot()) {
-          parent_->handleSplitOfChild(newNode, idxInSibling_);
-        } else {
-          this->unroot();
-          this->makeNewRoot(newNode);
-        }
-        return 0;
-      }
-    }
+    //   { // This node has to be split.
+    //     auto newNode = new BTreeNodeT(children_[kB/2], false, true, this->isJumpToBtm(), this->isUnderSuperRoot());
+    //     overflowToR_Btm(newNode, sndHalf, weight, idx);
+    //     if (!isRoot()) {
+    //       parent_->handleSplitOfChild(newNode, idxInSibling_);
+    //     } else {
+    //       this->unroot();
+    //       this->makeNewRoot(newNode);
+    //     }
+    //     return 0;
+    //   }
+    // }
 
 
     /*!
      * @brief Merge children of rnode into this node
      * @attention children of "this" node should be BTreeNodeT type.
      */
-    void mergeBtmChildrenWithOneDelete
-    (
-     BTreeNodeT * rnode,
-     const uint8_t idx,
-     const bool isIdxOfLeft
-     ) {
-      assert(isBorder());
-      assert(static_cast<uint16_t>(idx) < static_cast<uint16_t>(kB) * 2);
+    // void mergeBtmChildrenWithOneDelete
+    // (
+    //  BTreeNodeT * rnode,
+    //  const uint8_t idx,
+    //  const bool isIdxOfLeft
+    //  ) {
+    //   assert(isBorder());
+    //   assert(static_cast<uint16_t>(idx) < static_cast<uint16_t>(kB) * 2);
 
-      const auto rnum = rnode->getNumChildren();
-      if (isIdxOfLeft) {
-        const auto lnum = this->getNumChildren();
-        for (uint8_t i = idx + 1; i < lnum; ++i) {
-          putBtm(children_[i], i - 1, getWeightOfChild(i));
-        }
-        --numChildren_;
-        for (uint8_t i = 0; i < rnum; ++i) {
-          pushbackBtm(rnode->getChildPtr(i), rnode->getWeightOfChild(i));
-        }
-      } else {
-        for (uint8_t i = 0; i < idx; ++i) {
-          pushbackBtm(rnode->getChildPtr(i), rnode->getWeightOfChild(i));
-        }
-        for (uint8_t i = idx + 1; i < rnum; ++i) {
-          pushbackBtm(rnode->getChildPtr(i), rnode->getWeightOfChild(i));
-        }
-      }
-    }
+    //   const auto rnum = rnode->getNumChildren();
+    //   if (isIdxOfLeft) {
+    //     const auto lnum = this->getNumChildren();
+    //     for (uint8_t i = idx + 1; i < lnum; ++i) {
+    //       putBtm(children_[i], i - 1, getWeightOfChild(i));
+    //     }
+    //     --numChildren_;
+    //     for (uint8_t i = 0; i < rnum; ++i) {
+    //       pushbackBtm(rnode->getChildPtr(i), rnode->getWeightOfChild(i));
+    //     }
+    //   } else {
+    //     for (uint8_t i = 0; i < idx; ++i) {
+    //       pushbackBtm(rnode->getChildPtr(i), rnode->getWeightOfChild(i));
+    //     }
+    //     for (uint8_t i = idx + 1; i < rnum; ++i) {
+    //       pushbackBtm(rnode->getChildPtr(i), rnode->getWeightOfChild(i));
+    //     }
+    //   }
+    // }
 
 
     /*!
      * @brief Handle deletion of bottom child at idx
      */
-    BTreeNodeT * handleDeleteOfBtm
-    (
-     uint8_t & idx //!< [in, out]
-     ) {
-      assert(isBorder());
-      assert(idx <= numChildren_);
+    // BTreeNodeT * handleDeleteOfBtm
+    // (
+    //  uint8_t & idx //!< [in, out]
+    //  ) {
+    //   assert(isBorder());
+    //   assert(idx <= numChildren_);
 
-      const uint8_t num_new = numChildren_ - 1;
-      if (num_new == 0) {
-        auto retParentOfPrevBtm = getPrevBtmRef(idx); // idx is modified
-        parent_->handleDeleteOfChild(idxInSibling_);
-        delete this;
-        return retParentOfPrevBtm;
-      }
-      if (!isRoot() && num_new < kB / 2) {
-        if (idxInSibling_) { // Check previous sibling if it can be merged
-          auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
-          const uint16_t lnum = lnode->getNumChildren();
-          if (lnum + num_new <= 3 * kB / 4) {
-            lnode->mergeBtmChildrenWithOneDelete(this, lnum + idx);
-            parent_->changePSumAt(idxInSibling_ - 1, parent_->getPSum(idxInSibling_) + parent_->getWeightOfChild(idxInSibling_));
-            parent_->changePSumAt(idxInSibling_, 0);
-            parent_->handleDeleteOfChild(idxInSibling_);
-            delete this;
-            idx = lnum + idx - 1;
-            return lnode;
-          }
-        }
-        if (idxInSibling_ + 1 < parent_->getNumChildren()) { // Check next sibling if it can be merged
-          auto rnode = parent_->getChildPtr(idxInSibling_ + 1);
-          const uint16_t rnum = rnode->getNumChildren();
-          if (rnum + num_new <= 3 * kB / 4) {
-            this->mergeBtmWithOneDelete(rnode, idx);
-            parent_->changePSumAt(idxInSibling_, parent_->getPSum(idxInSibling_ + 1) + parent_->getWeightOfChild(idxInSibling_ + 1));
-            parent_->changePSumAt(idxInSibling_ + 1, 0);
-            parent_->handleDeleteOfChild(idxInSibling_);
-            delete rnode;
-            idx = idx - 1;
-            return this;
-          }
-        }
-      }
+    //   const uint8_t num_new = numChildren_ - 1;
+    //   if (num_new == 0) {
+    //     auto retParentOfPrevBtm = getPrevBtmRef(idx); // idx is modified
+    //     parent_->handleDeleteOfChild(idxInSibling_);
+    //     delete this;
+    //     return retParentOfPrevBtm;
+    //   }
+    //   if (!isRoot() && num_new < kB / 2) {
+    //     if (idxInSibling_) { // Check previous sibling if it can be merged
+    //       auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
+    //       const uint16_t lnum = lnode->getNumChildren();
+    //       if (lnum + num_new <= 3 * kB / 4) {
+    //         lnode->mergeBtmChildrenWithOneDelete(this, lnum + idx);
+    //         parent_->changePSumAt(idxInSibling_ - 1, parent_->getPSum(idxInSibling_) + parent_->getWeightOfChild(idxInSibling_));
+    //         parent_->changePSumAt(idxInSibling_, 0);
+    //         parent_->handleDeleteOfChild(idxInSibling_);
+    //         delete this;
+    //         idx = lnum + idx - 1;
+    //         return lnode;
+    //       }
+    //     }
+    //     if (idxInSibling_ + 1 < parent_->getNumChildren()) { // Check next sibling if it can be merged
+    //       auto rnode = parent_->getChildPtr(idxInSibling_ + 1);
+    //       const uint16_t rnum = rnode->getNumChildren();
+    //       if (rnum + num_new <= 3 * kB / 4) {
+    //         this->mergeBtmWithOneDelete(rnode, idx);
+    //         parent_->changePSumAt(idxInSibling_, parent_->getPSum(idxInSibling_ + 1) + parent_->getWeightOfChild(idxInSibling_ + 1));
+    //         parent_->changePSumAt(idxInSibling_ + 1, 0);
+    //         parent_->handleDeleteOfChild(idxInSibling_);
+    //         delete rnode;
+    //         idx = idx - 1;
+    //         return this;
+    //       }
+    //     }
+    //   }
 
-      // {//debug
-      //   std::cout << __FUNCTION__ << ": easy case" << std::endl;
-      // }
-      for (uint8_t i = idx + 1; i < numChildren_; ++i) {
-        putBtm(children_[i], i - 1, getWeightOfChild(i));
-      }
-      numChildren_ = num_new;
+    //   // {//debug
+    //   //   std::cout << __FUNCTION__ << ": easy case" << std::endl;
+    //   // }
+    //   for (uint8_t i = idx + 1; i < numChildren_; ++i) {
+    //     putBtm(children_[i], i - 1, getWeightOfChild(i));
+    //   }
+    //   numChildren_ = num_new;
 
-      if (isRoot() && num_new == 1 && parent_ != nullptr) {
-        BTreeNodeT * newRoot = children_[0];
-        newRoot->setParentRef(parent_, idxInSibling_);
-        if (this->isUnderSuperRoot()) {
-          reinterpret_cast<SuperRootT *>(parent_)->setRoot(newRoot);
-        } else {
-          parent_->setChildPtr(newRoot, idxInSibling_);
-        }
-        idx = 0;
-        return newRoot;
-      } else {
-        idx = idx - 1;
-        return this;
-      }
-    }
+    //   if (isRoot() && num_new == 1 && parent_ != nullptr) {
+    //     BTreeNodeT * newRoot = children_[0];
+    //     newRoot->setParentRef(parent_, idxInSibling_);
+    //     if (this->isUnderSuperRoot()) {
+    //       reinterpret_cast<SuperRootT *>(parent_)->setRoot(newRoot);
+    //     } else {
+    //       parent_->setChildPtr(newRoot, idxInSibling_);
+    //     }
+    //     idx = 0;
+    //     return newRoot;
+    //   } else {
+    //     idx = idx - 1;
+    //     return this;
+    //   }
+    // }
 
 
     /*!
      * @brief Change weight of "idx"-th child of this node, and accordingly all "psum_" values needed to be fixed.
      */
+    template<uint8_t row>
     void changePSumFrom
     (
      const uint8_t idx,
@@ -1546,10 +1571,10 @@ namespace itmmti
       assert(idx < numChildren_);
 
       for (uint8_t i = idx; i < numChildren_; ++i) {
-        psum_[i+1] += static_cast<uint64_t>(change);
+        psum_[row][i+1] += static_cast<uint64_t>(change);
       }
       if (!(isRoot() && isUnderSuperRoot()) && parent_ != nullptr) { // When we stack two or more BTrees, the change will be propagated.
-        parent_->changePSumFrom(idxInSibling_, change);
+        parent_->changePSumFrom<row>(idxInSibling_, change);
       }
     }
 
@@ -1557,6 +1582,7 @@ namespace itmmti
     /*!
      * @brief Change psum value for "idx"-th child.
      */
+    template<uint8_t row>
     void changePSumAt
     (
      const uint8_t idx,
@@ -1564,7 +1590,7 @@ namespace itmmti
      ) noexcept {
       assert(idx < numChildren_);
 
-      psum_[idx + 1] = psum_value;
+      psum_[row][idx + 1] = psum_value;
     }
 
 
@@ -1576,7 +1602,7 @@ namespace itmmti
     void putFirstBtm
     (
      void * child,
-     const uint64_t weight
+     const ColumnT weight
      ) noexcept {
       assert(isBorder());
       assert(numChildren_ == 0);
