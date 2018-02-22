@@ -1087,7 +1087,8 @@ namespace itmmti
       const uint16_t num_new = numChildren_ - numChild_del + numChild_ins;
       if (num_new == 0) {
         delete this;
-        parent->handleDeleteOfBtm(0);
+        uint8_t idxOfPrev = 0;
+        parent->handleDeleteOfBtm(idxOfPrev);
         return;
       }
       if (num_new < kBtmB / 2) {
