@@ -1,3 +1,4 @@
+project(BTree)
 # set(CMAKE_VERBOSE_MAKEFILE 1)
 cmake_minimum_required(VERSION 3.1)
 set(CMAKE_CXX_STANDARD 14)
@@ -22,7 +23,6 @@ endif()
 
 
 
-project(BTree)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 add_library(${PROJECT_NAME} STATIC
   TagRelabelAlgo.cpp
@@ -77,6 +77,7 @@ if(TESTING OR TESTING_ALL)
     enable_testing()
 
     add_test(NAME PSumWithValue_Test COMMAND PSumWithValue_Test)
+    add_test(NAME PSum_Test COMMAND PSum_Test)
   endif()
 endif()
 
