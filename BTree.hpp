@@ -179,10 +179,6 @@ namespace itmmti
     (
      uint8_t i //!< in [0..numChildren_).
      ) const noexcept {
-      if (i >= numChildren_) {
-        std::cout << this << ", i = " << (int)i << ", numChildren_ = " << (int)numChildren_ << std::endl;
-        this->printStatistics(std::cout, false);
-      }
       assert(i < numChildren_);
 
       return children_[i];
@@ -1318,9 +1314,9 @@ namespace itmmti
     (
      const uint8_t idx
      ) {
-      {//debug
-        std::cerr << __func__ << this << ": idx = " << (int)idx << std::endl;
-      }
+      // {//debug
+      //   std::cerr << __func__ << this << ": idx = " << (int)idx << std::endl;
+      // }
       assert(!isBorder());
       assert(idx < numChildren_);
 
@@ -1452,10 +1448,10 @@ namespace itmmti
      const uint8_t idx,
      const bool isIdxOfLeft
      ) {
-      {//debug
-        std::cerr << __func__ << "(" << this << "): rnode = " << rnode
-                  << ", idx = " << (int)idx << ", isIdxOfLeft = " << isIdxOfLeft << std::endl;
-      }
+      // {//debug
+      //   std::cerr << __func__ << "(" << this << "): rnode = " << rnode
+      //             << ", idx = " << (int)idx << ", isIdxOfLeft = " << isIdxOfLeft << std::endl;
+      // }
       assert(isBorder());
       assert(static_cast<uint16_t>(idx) < static_cast<uint16_t>(kB) * 2);
 
@@ -1561,9 +1557,9 @@ namespace itmmti
     (
      uint8_t idx //!<
      ) {
-      {//debug
-        std::cerr << __func__ << "(" << this << "): idx = " << (int)idx << ", numChildren_ = " << (int)numChildren_ << std::endl;
-      }
+      // {//debug
+      //   std::cerr << __func__ << "(" << this << "): idx = " << (int)idx << ", numChildren_ = " << (int)numChildren_ << std::endl;
+      // }
       assert(isBorder());
       assert(idx < numChildren_);
 
