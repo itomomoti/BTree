@@ -403,9 +403,9 @@ namespace itmmti
      const uint16_t childIdx, //!< Beginning childIdx of tgt.
      const uint16_t numChild_del //!< Length of wCodes of tgt to delete.
      ) noexcept {
-      {//debug
-        std::cerr << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
-      }
+      // {//debug
+      //   std::cerr << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
+      // }
       assert(childIdx + numChild_del <= numChildren_);
 
       std::tuple<uint64_t, uint64_t, uint64_t> changeList[2];
@@ -614,9 +614,9 @@ namespace itmmti
      const uint16_t childIdx, //!< Beginning childIdx of tgt.
      const uint16_t numChild_del //!< Length of wCodes of tgt to delete.
      ) noexcept {
-      {//debug
-        std::cerr << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
-      }
+      // {//debug
+      //   std::cerr << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
+      // }
       assert(childIdx + numChild_del <= numChildren_);
 
       std::tuple<uint64_t, uint64_t, uint64_t> changeList[2];
@@ -720,10 +720,10 @@ namespace itmmti
      const uint16_t numChild_ins,
      const uint16_t numChild_del //!< Length of wCodes of tgt to delete.
      ) noexcept {
-      {//debug
-        std::cerr << __func__ << ": childIdx = " << childIdx << ", sumW_ins = " << (int)sumW_ins << ", sumW_del = " << sumW_del
-                  << ", numChild_ins = " << (int)numChild_ins << ", numChild_del = " << (int)numChild_del << std::endl;
-      }
+      // {//debug
+      //   std::cerr << __func__ << ": childIdx = " << childIdx << ", sumW_ins = " << (int)sumW_ins << ", sumW_del = " << sumW_del
+      //             << ", numChild_ins = " << (int)numChild_ins << ", numChild_del = " << (int)numChild_del << std::endl;
+      // }
       const uint16_t tailNum = this->numChildren_ - (childIdx + numChild_del); // at least 0 by assumption.
       uint16_t tailW = 0;
       if (tailNum) {
@@ -821,14 +821,14 @@ namespace itmmti
      const uint16_t numChild_ins,
      const uint16_t numChild_del //!< Length of wCodes of tgt to delete.
      ) noexcept {
-      {//debug
-        std::cerr << __func__ << ": childIdx = " << childIdx << ", sumW_ins = " << sumW_ins << ", sumW_del = " << sumW_del
-                  << ", numChild_ins = " << (int)numChild_ins << ", numChild_del = " << (int)numChild_del
-                  << ", this(" << this << ")->getNumChildren() = " << this->getNumChildren()
-                  << ", rnode(" << rnode << ")->getNumChildren() = " << rnode->getNumChildren() << std::endl;
-        // this->printStatistics(std::cout, true);
-        // rnode->printStatistics(std::cout, true);
-      }
+      // {//debug
+      //   std::cerr << __func__ << ": childIdx = " << childIdx << ", sumW_ins = " << sumW_ins << ", sumW_del = " << sumW_del
+      //             << ", numChild_ins = " << (int)numChild_ins << ", numChild_del = " << (int)numChild_del
+      //             << ", this(" << this << ")->getNumChildren() = " << this->getNumChildren()
+      //             << ", rnode(" << rnode << ")->getNumChildren() = " << rnode->getNumChildren() << std::endl;
+      //   // this->printStatistics(std::cout, true);
+      //   // rnode->printStatistics(std::cout, true);
+      // }
       const uint16_t sumW_diff = static_cast<uint16_t>(sumW_ins - sumW_del);
       uint16_t growStccSize = this->stccSize_;
       uint16_t growNum = this->numChildren_;
@@ -885,9 +885,9 @@ namespace itmmti
      BTreeNodeT * parent,
      const uint8_t idxInSibling
      ) {
-      {//debug
-        std::cerr << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
-      }
+      // {//debug
+      //   std::cerr << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
+      // }
       assert(numChild_ins <= kBtmB);
       assert(childIdx + numChild_del <= numChildren_);
 
@@ -969,13 +969,13 @@ namespace itmmti
      BTreeNodeT * parent,
      const uint8_t idxInSibling
      ) noexcept {
-      {//debug
-        std::cerr << __func__ << "(" << this << "): numChild_ins = " << numChild_ins
-                  << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del
-                  << ", numChildren_ = " << (int)numChildren_
-                  << ", stccSize _ = " << stccSize_ << ", stccCapacity_ = " << stccCapacity_
-                  << ", parent = " << parent << ", idxInSibling = " << (int)idxInSibling << std::endl;
-      }
+      // {//debug
+      //   std::cerr << __func__ << "(" << this << "): numChild_ins = " << numChild_ins
+      //             << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del
+      //             << ", numChildren_ = " << (int)numChildren_
+      //             << ", stccSize _ = " << stccSize_ << ", stccCapacity_ = " << stccCapacity_
+      //             << ", parent = " << parent << ", idxInSibling = " << (int)idxInSibling << std::endl;
+      // }
       assert(numChild_ins <= numChild_del); // Assume that # insertion is at most # deletion.
       assert(childIdx + numChild_del <= numChildren_);
 
@@ -1067,9 +1067,9 @@ namespace itmmti
      BTreeNodeT * parent,
      const uint8_t idxInSibling
      ) {
-      {//debug
-        std::cerr << __func__ << ": num = " << num << ", idx = " << idx << std::endl;
-      }
+      // {//debug
+      //   std::cerr << __func__ << ": num = " << num << ", idx = " << idx << std::endl;
+      // }
       assert(idx + num <= 2 * static_cast<uint16_t>(numChildren_));
 
       const uint16_t bitPos0 = this->calcBitPos(idx);
