@@ -18,11 +18,38 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+// #include <tuple>
+// #include <utility>
 
 #include "BTree.hpp"
 
 namespace itmmti
 {
+  template<typename Func, typename Tuple, size_t... I>
+  auto executeForEach_(Func && f, Tuple && args, std::index_sequence<I...>) {
+    executeForEach(std::forward<Func>(f), std::get<I>(std::forward<Tuple>(args))...);
+  }
+
+
+  template<typename Func, typename Tuple,
+           typename Indices = std::make_index_sequence<std::tuple_size<Tuple>::value>>
+  auto executeForEach(Func && f, Tuple && args) {
+    executeForEach_(std::forward<Func>(f), std::forward<Tuple>(args), Indices());
+  }
+
+
+  template<typename Func, typename Head, typename... Tails>
+  void executeForEach(Func && f, Head && head, Tails &&... tails) {
+    std::forward<Func>(f)(std::forward<Head>(head));
+    executeForEach(std::forward<Func>(f), std::forward<Tails>(tails)...);
+  }
+
+
+  template<typename Func>
+  void executeForEach(Func &&) {
+  }
+
+
   /*!
    * @brief Pointer-based implementation of upper part of B+tree.
    * @attention Bottom part of B+tree can be implemented in more space efficient way (e.g., using packed array to store weights).
@@ -30,18 +57,18 @@ namespace itmmti
    */
   template
   <
-    uint8_t tparam_kB = 64,
-    uint8_t tparam_kNumRow = 2,
-    typename ColumnT = std::array<uint64_t, tparam_kNumRow>
+    uint8_t tparam_kB,
+    typename... RowTs
     >
   class MultiRowBTreeNode
   {
   public:
     //// Public constant, alias etc.
     static constexpr uint8_t kB{tparam_kB};
-    static constexpr uint8_t kNumRow{tparam_kNumRow};
-    using BTreeNodeT = MultiRowBTreeNode<kB, kNumRow>;
+    static constexpr uint8_t kNumRow{sizeof...(RowTs)};
+    using BTreeNodeT = MultiRowBTreeNode<kB, RowTs...>;
     using SuperRootT = SuperRoot<BTreeNodeT>;
+    // using ColumnT = std::tuple<RowTs...>;
     static constexpr uintptr_t NOTFOUND{UINTPTR_MAX};
 
 
@@ -61,7 +88,7 @@ namespace itmmti
 
   private:
     //// Private member variables
-    uint64_t psum_[kNumRow][kB+1]; //!< Partial sum: psum_[i+1] = sum_{i = 0}^{i} [weight of i-th child (0base)]
+    std::tuple<RowTs...> rows_; //!< Partial sum: psum_[i+1] = sum_{i = 0}^{i} [weight of i-th child (0base)]
     BTreeNodeT * parent_; //!< Pointer to parent node.
     uint8_t idxInSibling_; //!< This node is 'idxInSibling_'-th child (0base) of its parent.
     uint8_t numChildren_; //!< Current num of children.
@@ -72,7 +99,7 @@ namespace itmmti
 
   public:
     //// Constructor
-    MultiRowBTreeNode<kB, kNumRow>
+    MultiRowBTreeNode<kB, RowTs...>
     (
      void * lmJumpNode,
      bool isRoot,
@@ -87,14 +114,18 @@ namespace itmmti
       flags_(isRoot * isRootBit | isBorder * isBorderBit | isJumpToBtm * isJumpToBtmBit | isUnderSuperRoot * isUnderSuperRootBit | isDummy * isDummyBit),
       lmJumpNode_(reinterpret_cast<BTreeNodeT *>(lmJumpNode))
     {
-      psum_[0] = 0;
+      executeForEach(
+                     [](auto row) {
+                       row.init();
+                     },
+                     rows_);
       if (isBorder && !isJumpToBtm) {
         lmJumpNode_ = this;
       }
     }
-    ~MultiRowBTreeNode<kB, kNumRow>() = default;
-    MultiRowBTreeNode<kB, kNumRow>(const BTreeNode<kB> &) = delete;
-    MultiRowBTreeNode<kB, kNumRow> & operator=(const BTreeNode<kB> &) = delete;
+    ~MultiRowBTreeNode<kB, RowTs...>() = default;
+    MultiRowBTreeNode<kB, RowTs...>(const MultiRowBTreeNode<kB, RowTs...> &) = delete;
+    MultiRowBTreeNode<kB, RowTs...> & operator=(const MultiRowBTreeNode<kB, RowTs...> &) = delete;
 
 
     /*!
@@ -116,69 +147,32 @@ namespace itmmti
     /*!
      * @brief Get the sum of weights of child subtrees numbered from 0 to i-1 (note that i is NOT included).
      */
-    template<uint8_t row>
+    template<uint8_t rowIdx>
     uint64_t getPSum
     (
      const uint8_t idx_excl //!< in [0.."numChildren_"].
      ) const noexcept {
-      static_assert(row < kNumRow, "row must be smaller than kNumRow.");
+      static_assert(rowIdx < kNumRow, "row must be smaller than kNumRow.");
       assert(idx_excl <= numChildren_);
 
-      return psum_[row][idx_excl];
+      return std::get<rowIdx>(rows_).getPSum(idx_excl);
     }
 
 
     /*!
-     * @brief Get the weight of a child subtree.
+     * @brief Get row
      */
-    template<uint8_t row>
-    uint64_t getWeightOfChild
-    (
-     const uint8_t idx //!< in [0.."numChildren_").
-     ) const noexcept {
-      static_assert(row < kNumRow, "row must be smaller than kNumRow.");
-      assert(idx < numChildren_);
-
-      return psum_[row][idx+1] - psum_[row][idx];
+    template<uint8_t rowIdx>
+    auto & getConstRow() const noexcept {
+      static_assert(rowIdx < kNumRow, "rowIdx must be smaller than kNumRow.");
+      return std::get<rowIdx>(rows_);
     }
 
 
-    /*!
-     * @brief Get the weight of a child subtree.
-     */
-    ColumnT getColumn
-    (
-     const uint8_t idx //!< in [0.."numChildren_").
-     ) const noexcept {
-      assert(idx < numChildren_);
-
-      ColumnT ret;
-      for (uint8_t r = 0; r < kNumRow; ++r) {
-        ret[r] = psum_[r][idx+1] - psum_[r][idx];
-      }
-      return ret;
-    }
-
-
-    /*!
-     * @brief Get const psum array.
-     */
-    template<uint8_t row>
-    const uint64_t * getConstPtr_psum() const noexcept {
-      static_assert(row < kNumRow, "row must be smaller than kNumRow.");
-
-      return psum_[row];
-    }
-
-
-    /*!
-     * @brief Get the weight of this node.
-     */
-    template<uint8_t row>
-    uint64_t getSumOfWeight() const noexcept {
-      static_assert(row < kNumRow, "row must be smaller than kNumRow.");
-
-      return psum_[row][numChildren_];
+    template<uint8_t rowIdx>
+    auto & getRow() noexcept {
+      static_assert(rowIdx < kNumRow, "rowIdx must be smaller than kNumRow.");
+      return std::get<rowIdx>(rows_);
     }
 
 
@@ -639,21 +633,21 @@ namespace itmmti
      *   Return partial sum (or row number "ROW") up to the node
      *   (inclusive iff "inclusive == true") indicated by "idx"-th child (0base) of this node.
      */
-    template<uint8_t row>
+    template<uint8_t rowIdx>
     uint64_t calcPSum
     (
      uint8_t idx,
      bool inclusive = false
      ) const noexcept {
-      static_assert(row < kNumRow, "row should be smaller than ROW_NUM");
+      static_assert(rowIdx < kNumRow, "row should be smaller than ROW_NUM");
       assert(isBorder());
 
-      uint64_t ret = this->getPSum<row>(idx + inclusive);
+      uint64_t ret = this->getPSum<rowIdx>(idx + inclusive);
       const auto * node = this;
       while (!node->isRoot()) {
         idx = node->getIdxInSibling();
         node = node->getParent();
-        ret += node->getPSum<row>(idx);
+        ret += node->getPSum<rowIdx>(idx);
       }
       return ret;
     }
@@ -662,22 +656,22 @@ namespace itmmti
     /*!
      * @brief Return partial sum up to the node (exclusive) indicated by "idx"-th child (0base) of this node.
      */
-    template<uint8_t row>
+    template<uint8_t rowIdx>
     uint64_t calcPSum
     (
      uint8_t idx,
      const BTreeNodeT *& retNode, //!< [out] To capture the root of the BTree.
      bool inclusive = false
      ) const noexcept {
-      static_assert(row < kNumRow, "row should be smaller than ROW_NUM");
+      static_assert(rowIdx < kNumRow, "row should be smaller than ROW_NUM");
       assert(isBorder());
 
-      uint64_t ret = this->getPSum<row>(idx + inclusive);
+      uint64_t ret = this->getPSum<rowIdx>(idx + inclusive);
       retNode = this;
       while (!retNode->isRoot()) {
         idx = retNode->getIdxInSibling();
         retNode = retNode->getParent();
-        ret += retNode->getPSum<row>(idx);
+        ret += retNode->getPSum<rowIdx>(idx);
       }
       return ret;
     }
@@ -686,22 +680,22 @@ namespace itmmti
     /*!
      * @brief Return partial sum up to the node (exclusive) indicated by "idx"-th child (0base) of this node.
      */
-    template<uint8_t row>
+    template<uint8_t rowIdx>
     uint64_t calcPSum
     (
      uint8_t idx,
      BTreeNodeT *& retNode, //!< [out] To capture the root of the BTree.
      bool inclusive = false
      ) noexcept {
-      static_assert(row < kNumRow, "row should be smaller than ROW_NUM");
+      static_assert(rowIdx < kNumRow, "row should be smaller than ROW_NUM");
       assert(isBorder());
 
-      uint64_t ret = this->getPSum<row>(idx + inclusive);
+      uint64_t ret = this->getPSum<rowIdx>(idx + inclusive);
       retNode = this;
       while (!retNode->isRoot()) {
         idx = retNode->getIdxInSibling();
         retNode = retNode->getParent();
-        ret += retNode->getPSum<row>(idx);
+        ret += retNode->getPSum<rowIdx>(idx);
       }
       return ret;
     }
@@ -711,18 +705,18 @@ namespace itmmti
      * @brief Traverse tree looking for "pos" in weights array.
      * @return Pointer to bottom node where partial sum of "pos" is achieved, where weight-0 nodes (e.g. dummy nodes) are skipped.
      */
-    template<uint8_t row>
+    template<uint8_t rowIdx>
     const BTreeNodeT * searchPos
     (
      uint64_t & pos //!< [in,out] Give global position to search. It is modified to relative position in bottom node.
      ) const noexcept {
-      static_assert(row < kNumRow, "row should be smaller than ROW_NUM");
+      static_assert(rowIdx < kNumRow, "row should be smaller than ROW_NUM");
       assert(pos < this->getSumOfWeight());
 
       const BTreeNodeT * node = this;
       while (true) {
         uint8_t i = 0;
-        auto array = node->template getConstPtr_psum<row>();
+        auto array = node->template getConstPtr_psum<rowIdx>();
         while (pos >= array[i + 1]) {
           ++i;
         }
@@ -1122,9 +1116,11 @@ namespace itmmti
       assert(idx < kB);
 
       children_[idx] = child;
-      for (uint8_t r = 0; r < kNumRow; ++r) {
-        psum_[r][idx + 1] = psum_[r][idx] + child->template getSumOfWeight<r>();
-      }
+      executeForEach(
+                     [child, idx](auto row) {
+                       row.putBTreeNode(child, idx);
+                     },
+                     rows_);
       child->setParentRef(this, idx);
     }
 
@@ -1141,7 +1137,11 @@ namespace itmmti
      ) noexcept {
       assert(numChildren_ < kB);
 
-      putBTreeNode(child, numChildren_);
+      executeForEach(
+                     [child, idx](auto row) {
+                       row.putBTreeNode(child, numChildren_);
+                     },
+                     rows_);
       ++numChildren_;
     }
 

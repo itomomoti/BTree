@@ -34,113 +34,25 @@
 namespace itmmti
 {
   ////////////////////////////////////////////////////////////////
-  class PackedArray_Null
-  {
-  public:
-    using ValT = uint64_t;
-
-
-  public:
-    PackedArray_Null()
-    {}
-
-
-    ~PackedArray_Null()
-    {}
-
-
-    void clearAll() {
-    }
-
-
-    uint64_t getW() const noexcept {
-      return 0;
-    }
-
-
-    void resize
-    (
-     size_t newSize
-     ) noexcept {
-    }
-
-
-    /*!
-     * @brief write sample
-     */
-    uint64_t read
-    (
-     const uint64_t idx
-     ) const noexcept {
-      return 0;
-    }
-
-
-    /*!
-     * @brief write sample
-     */
-    void write
-    (
-     const uint64_t newSample,
-     const uint64_t idx
-     ) noexcept {
-    }
-
-
-    void increaseW
-    (
-     const uint64_t givenUpperBound
-     ) {
-    }
-
-
-    void decreaseW
-    (
-     const uint64_t givenUpperBound
-     ) {
-    }
-
-
-    void mvVals
-    (
-     const uint64_t srcIdx,
-     const uint64_t tgtIdx,
-     const uint8_t num
-     ) noexcept {
-    }
-
-
-    //////////////////////////////// statistics
-    size_t calcMemBytes
-    (
-     bool includeThis = true
-     ) const noexcept {
-      return 0;
-    }
-
-
-    size_t calcMemBytes_used() const noexcept {
-      return 0;
-    }
-  };
-
-
-
-
-  ////////////////////////////////////////////////////////////////
-  template<uint16_t kBtmB>
+  /*!
+   * @brief Bottom node for dynamic partial sum data structure implemented by B+tree, where each leaf is associated with value.
+   * @tparam tparam_kBtmB Arity for bottom node of B+tree, which should be in {16, 32, 64, 128}.
+   */
+  template<uint16_t tparam_kBtmB>
   class BtmNodeForPSumWithVal
   {
   public:
     //// Public constant, alias etc.
+    static constexpr uint16_t kBtmB{tparam_kBtmB};
+    static constexpr size_t kUnitBits{kBtmB * 4};
     using BtmNodeT = BtmNodeForPSumWithVal<kBtmB>;
 
 
   private:
     //// Private member variables.
     StepCodeCore<2 * kBtmB> stcc_; //!< weights and values are stored alternatingly.
-    uint16_t bitCapacity_; //!< Current bit capacity.
-    uint16_t bitSize_; //!< Current bit size.
+    uint16_t stccCapacity_; //!< Current bit capacity of stcc_
+    uint16_t stccSize_; //!< Current bit size of stcc_
     uint8_t numChildren_; //!< Current size (number of elements).
     uint8_t wCodesAuxM_[2 * kBtmB / StepCodeUtil::kWCNum - 1];
 
@@ -148,12 +60,12 @@ namespace itmmti
   public:
     BtmNodeForPSumWithVal
     (
-     uint16_t initBitCapacity = 0
-     ) : stcc_(), bitCapacity_(0), bitSize_(0), numChildren_(0)
+     uint16_t initStccCapacity = 0
+     ) : stcc_(), stccCapacity_(0), stccSize_(0), numChildren_(0)
     {
-      assert(initBitCapacity <= UINT16_MAX - 64);
+      assert(initStccCapacity <= UINT16_MAX - 64);
 
-      bitCapacity_ = static_cast<uint16_t>(stcc_.setBitCapacity(initBitCapacity));
+      reserveBitCapacity(initStccCapacity);
     }
 
 
@@ -165,26 +77,30 @@ namespace itmmti
 
     uint16_t getBitSize() const noexcept
     {
-      return bitSize_;
+      return stccSize_;
     }
 
 
     uint16_t getBitCapacity() const noexcept
     {
-      return bitCapacity_;
+      return stccCapacity_;
     }
 
 
-    /*!
-     * @brief Change capacity to max of givenCapacity and current size.
-     * @node If givenCapacity is 0, it works as shrink_to_fit.
-     */
-    uint16_t changeBitCapacity
+    void reserveBitCapacity
     (
      uint16_t givenBitCapacity
      ) {
-      if (bitCapacity_ != givenBitCapacity) {
-        bitCapacity_ = static_cast<uint16_t>(stcc_.setBitCapacity(std::max(bitSize_, givenBitCapacity)));
+      if (givenBitCapacity > this->stccCapacity_) {
+        size_t newSize = (static_cast<size_t>(givenBitCapacity) / kUnitBits + 2) * kUnitBits;
+        this->stccCapacity_ = static_cast<uint16_t>(this->stcc_.setBitCapacity(static_cast<size_t>(givenBitCapacity)));
+      }
+    }
+
+
+    void shrinkBitCapacity() {
+      if (this->stccCapacity_ - this->stccSize_ > kUnitBits) {
+        this->stccCapacity_ = static_cast<uint16_t>(this->stcc_.setBitCapacity(static_cast<size_t>(this->stccSize_)));
       }
     }
 
@@ -192,6 +108,19 @@ namespace itmmti
     uint16_t getNumChildren() const noexcept
     {
       return numChildren_;
+    }
+
+
+    uint64_t readNext
+    (
+     uint16_t idx, //!< Element idx to read in stcc_.
+     uint64_t & bitPos //!< [in,out] BitPos of idx element in stcc_. Modified to BitPos of next element.
+     ) const noexcept {
+      const auto w = stcc_.readW(idx);
+      const auto val = stcc_.readWBits(bitPos, w);
+      bitPos += w;
+
+      return val;
     }
 
 
@@ -261,7 +190,39 @@ namespace itmmti
       if (idx < 2 * static_cast<uint16_t>(numChildren_)) {
         return static_cast<uint16_t>(stcc_.calcBitPos(idx, wCodesAuxM_));
       } else {
-        return bitSize_;
+        return stccSize_;
+      }
+    }
+
+
+    /*!
+     * @brief Return child index where partial sum of "pos+1" is achieved.
+     * @pre Answer should be found in this bottom node.
+     */
+    uint8_t searchPos
+    (
+     uint64_t & pos, //!< [in,out] Give position to search. It is modified to relative position.
+     uint64_t & retWeight, //!< [out] Capture last weight where pos exists.
+     uint64_t & retVal, //!< [out] Capture value.
+     uint64_t & bitPos //!< [out] Capture bitPos, pointing to end of read element.
+     ) const noexcept {
+      assert(pos < calcSumOfWeight()); // pre
+
+      bitPos = 0;
+      uint16_t i = 0;
+      while (true) {
+        const auto w = stcc_.readW(i);
+        retWeight = stcc_.readWBits(bitPos, w);
+        bitPos += w;
+        const auto w_val = stcc_.readW(++i);
+        if (pos < retWeight) {
+          retVal = stcc_.readWBits(bitPos, w_val);
+          bitPos += w_val;
+          return static_cast<uint8_t>(i / 2);
+        }
+        bitPos += w_val;
+        pos -= retWeight;
+        ++i;
       }
     }
 
@@ -355,18 +316,10 @@ namespace itmmti
     }
 
 
-    uint16_t setBitCapacity
-    (
-     uint16_t givenBitCapacity
-     ) {
-      return static_cast<uint16_t>(stcc_.setBitCapacity(static_cast<size_t>(givenBitCapacity)));
-    }
-
-
     /*!
      * @brief Resize "numChildren_" to "newSize".
      * @note
-     *   It does not change bitCapacity.
+     *   It does not change stccCapacity.
      */
     void resize
     (
@@ -405,7 +358,7 @@ namespace itmmti
      const uint64_t insBitLen, //!< Bit-length to insert in bv_
      const uint64_t delBitLen //!< Bit-length to delete in bv_
      ) noexcept {
-      stcc_.changeValPos(bitSize_, bitPos, insBitLen, delBitLen);
+      stcc_.changeValPos(stccSize_, bitPos, insBitLen, delBitLen);
     }
 
 
@@ -432,7 +385,8 @@ namespace itmmti
      const uint16_t idxBeg,
      const uint16_t idxEnd
      ) noexcept {
-      assert(idxBeg < idxEnd);
+      assert(idxBeg <= idxEnd);
+      assert(0 < idxEnd);
 
       const uint64_t beg = idxBeg / StepCodeUtil::kWCNum;
       const uint64_t end = (idxEnd - 1) / StepCodeUtil::kWCNum + (idxEnd <= (2 * kBtmB - StepCodeUtil::kWCNum));
@@ -449,10 +403,10 @@ namespace itmmti
      const uint16_t childIdx, //!< Beginning childIdx of tgt.
      const uint16_t numChild_del //!< Length of wCodes of tgt to delete.
      ) noexcept {
-      assert(childIdx + numChild_del <= numChildren_);
       {//debug
-        std::cout << __FUNCTION__ << std::endl;
+        std::cerr << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
       }
+      assert(childIdx + numChild_del <= numChildren_);
 
       std::tuple<uint64_t, uint64_t, uint64_t> changeList[2];
       uint8_t clSize = 0;
@@ -464,7 +418,7 @@ namespace itmmti
       const uint16_t numToLeft = numL_new - numL_old;
       const bool isNewElemInL = childIdx < numToLeft;
       const bool isNewElemInR = childIdx + numChild_ins > numToLeft;
-      uint16_t sumWL = lnode->bitSize_;
+      uint16_t sumWL = lnode->stccSize_;
       uint16_t numL = numL_old;
       uint16_t curNumAfterDel = 0;
       uint16_t curNumSrcWCodes = 0;
@@ -494,19 +448,17 @@ namespace itmmti
       lnode->numChildren_ = static_cast<uint8_t>(numL_new);
       lnode->updateWCodesAuxM(2 * numL_old, 2 * numL_new);
       { // Update vals of lnode.
-        if (lnode->bitCapacity_ < sumWL) {
-          lnode->bitCapacity_ = lnode->setBitCapacity(sumWL);
-        }
+        lnode->reserveBitCapacity(sumWL);
         for (uint8_t i = 0; i < clSize; ++i) {
           lnode->mvVals(this->getConstPtr_vals(), std::get<0>(changeList[i]), std::get<1>(changeList[i]), std::get<2>(changeList[i]));
         }
-        lnode->bitSize_ = sumWL;
+        lnode->stccSize_ = sumWL;
       }
 
       // Update this node.
       clSize = 0;
       const uint16_t bitPosOfLastChunk = this->calcBitPos(2 * (childIdx + numChild_del + curNumAfterDel));
-      const uint16_t bitSizeOfLastChunk = this->bitSize_ - bitPosOfLastChunk;
+      const uint16_t bitSizeOfLastChunk = this->stccSize_ - bitPosOfLastChunk;
       uint16_t sumWR = bitSizeOfLastChunk;
       if (numToLeft < childIdx) {
         const uint16_t num = childIdx - numToLeft;
@@ -535,14 +487,12 @@ namespace itmmti
       this->numChildren_ = static_cast<uint8_t>(numR_new);
       this->updateWCodesAuxM(0, 2 * numR_new);
       { // Update vals of "this" node.
-        if (this->bitCapacity_ < sumWR) {
-          this->bitCapacity_ = this->setBitCapacity(sumWR);
-        }
+        this->reserveBitCapacity(sumWR);
         for (uint8_t i = 0; i < clSize; ++i) {
-          std::cout << "mvVals: " << this->getConstPtr_vals() << ", " << std::get<0>(changeList[i]) << ", " << std::get<1>(changeList[i]) << ", " << std::get<2>(changeList[i]) << std::endl;
-          this->mvVals(this->getConstPtr_vals(), std::get<0>(changeList[i]), std::get<1>(changeList[i]), std::get<2>(changeList[i]));
+          this->stcc_.mvVals(this->getConstPtr_vals(), std::get<0>(changeList[i]), std::get<1>(changeList[i]), std::get<2>(changeList[i]));
         }
-        this->bitSize_ = sumWR;
+        this->stccSize_ = sumWR;
+        this->shrinkBitCapacity();
       }
     }
 
@@ -585,7 +535,7 @@ namespace itmmti
     //   }
 
     //   uint16_t numL = lnode->getNumChildren();
-    //   uint64_t sumWL = lnode->bitSize_;
+    //   uint64_t sumWL = lnode->stccSize_;
     //   if (numToLeft1) {
     //     const auto bitPos = this->calcBitPos(2 * childIdx);
     //     const auto w = this->calcBitPos(2 * (childIdx + numToLeft1)) - bitPos;
@@ -601,7 +551,7 @@ namespace itmmti
     //   }
     //   if (numToLeft2) {
     //     const auto bitPos = this->calcBitPos(2 * (childIdx + numChild_del));
-    //     const auto w = this->bitSize_ - bitPos;
+    //     const auto w = this->stccSize_ - bitPos;
     //     changeList[clSize++] = {bitPos, sumWL, w};
     //     sumWL += w;
     //     lnode->stcc_.mvWCodes(this->getConstPtr_wCodes(), 2 * (childIdx + numChild_del), 2 * numL, 2 * numToLeft2);
@@ -609,13 +559,13 @@ namespace itmmti
     //   lnode->numChildren_ = numL_new;
     //   lnode->updateWCodesAuxM(2 * numL_old, 2 * numL_new);
     //   { // Update vals of left node
-    //     if (lnode->bitCapacity_ < sumWL) {
-    //       lnode->bitCapacity_ = lnode->setBitCapacity(sumWL);
+    //     if (lnode->stccCapacity_ < sumWL) {
+    //       lnode->stccCapacity_ = lnode->setBitCapacity(sumWL);
     //     }
     //     for (uint8_t i = 0; i < clSize; ++i) {
     //       lnode->mvVals(this->getConstPtr_vals(), std::get<0>(changeList[i]), std::get<1>(changeList[i]), std::get<2>(changeList[i]));
     //     }
-    //     lnode->bitSize_ += sumWL;
+    //     lnode->stccSize_ += sumWL;
     //   }
 
     //   if (numTailInR) {
@@ -627,15 +577,15 @@ namespace itmmti
     //   if (numSrcWCodesInL) {
     //     const uint64_t sumWL_ins = StepCodeUtil::sumW(srcWCodes, 0, 2 * numSrcWCodesInL);
     //     const uint64_t tailBitPos_new = this->calcBitPos(2 * childIdx) + sumWL_ins;
-    //     this->bitSize_ = tailBitPos_new;
+    //     this->stccSize_ = tailBitPos_new;
     //     const auto numTail = numL_new - (childIdx + numChild_ins);
     //     if (numTail) {
     //       const auto tailBitPos_old = this->calcBitPos(2 * (childIdx + numChild_del));
     //       const auto w = this->calcBitPos(2 * (childIdx + numChild_del + numTail)) - tailBitPos_old;
-    //       this->bitSize_ += w;
+    //       this->stccSize_ += w;
     //       if (tailBitPos_new != tailBitPos_old) {
-    //         if (this->bitCapacity_ < this->bitSize_) {
-    //           this->bitCapacity_ = this->setBitCapacity(this->bitSize_);
+    //         if (this->stccCapacity_ < this->stccSize_) {
+    //           this->stccCapacity_ = this->setBitCapacity(this->stccSize_);
     //         }
     //         this->mvVals(this->getConstPtr_vals(), tailBitPos_old, tailBitPos_new, w);
     //       }
@@ -643,14 +593,14 @@ namespace itmmti
     //         this->stcc_.mvWCodes(this->getConstPtr_wCodes(), 2 * (childIdx * numChild_del), 2 * (childIdx * numChild_ins), 2 * numTail);
     //       }
     //     } else {
-    //       if (this->bitCapacity_ < this->bitSize_) {
-    //         this->bitCapacity_ = this->setBitCapacity(this->bitSize_);
+    //       if (this->stccCapacity_ < this->stccSize_) {
+    //         this->stccCapacity_ = this->setBitCapacity(this->stccSize_);
     //       }
     //     }
     //     this->stcc_.mvWCodes(srcWCodes, 0, 2 * childIdx, 2 * numSrcWCodesInL);
     //     this->updateWCodesAuxM(2 * childIdx, 2 * numL_new);
     //   } else {
-    //     this->bitSize_ = this->calcBitPos(2 * numL_new); // shrink (just change bitSize)
+    //     this->stccSize_ = this->calcBitPos(2 * numL_new); // shrink (just change bitSize)
     //   }
     //   this->numChildren_ = numL_new;
     // }
@@ -664,10 +614,10 @@ namespace itmmti
      const uint16_t childIdx, //!< Beginning childIdx of tgt.
      const uint16_t numChild_del //!< Length of wCodes of tgt to delete.
      ) noexcept {
-      assert(childIdx + numChild_del <= numChildren_);
       {//debug
-        std::cout << __FUNCTION__ << std::endl;
+        std::cerr << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
       }
+      assert(childIdx + numChild_del <= numChildren_);
 
       std::tuple<uint64_t, uint64_t, uint64_t> changeList[2];
       uint8_t clSize = 0;
@@ -688,9 +638,6 @@ namespace itmmti
         } else { // new elements are also in in R
           numSrcWCodesInL = numL_new - childIdx;
           numToRight2 = numL_old - (childIdx + numChild_del);
-          // {
-          //   std::cout << "koko: numToRight2 = " << numToRight2 << std::endl;
-          // }
         }
       } else { // new elements are in R
         numToRight1 = childIdx - numL_new;
@@ -718,7 +665,7 @@ namespace itmmti
       }
       if (numToRight2) {
         const uint16_t bitPos = this->calcBitPos(2 * (numL_old - numToRight2));
-        const uint16_t w = this->bitSize_ - bitPos;
+        const uint16_t w = this->stccSize_ - bitPos;
         changeList[clSize++] = {bitPos, sumWR_increment, w};
         sumWR_increment += w;
         rnode->stcc_.mvWCodes(this->getConstPtr_wCodes(), 2 * (numL_old - numToRight2), 2 * numR_increment, 2 * numToRight2);
@@ -726,48 +673,38 @@ namespace itmmti
       rnode->numChildren_ = static_cast<uint8_t>(numR_new);
       rnode->updateWCodesAuxM(0, 2 * numR_new);
       { // Update vals of "rnode".
-        if (rnode->bitCapacity_ < rnode->bitSize_ + sumWR_increment) {
-          rnode->bitCapacity_ = rnode->setBitCapacity(rnode->bitSize_ + sumWR_increment);
-        }
+        rnode->reserveBitCapacity(rnode->stccSize_ + sumWR_increment);
         if (numR_old) {
-          rnode->mvVals(rnode->getConstPtr_vals(), 0, sumWR_increment, rnode->bitSize_);
+          rnode->stcc_.mvVals(rnode->getConstPtr_vals(), 0, sumWR_increment, rnode->stccSize_);
         }
         for (uint8_t i = 0; i < clSize; ++i) {
-          rnode->mvVals(this->getConstPtr_vals(), std::get<0>(changeList[i]), std::get<1>(changeList[i]), std::get<2>(changeList[i]));
+          rnode->stcc_.mvVals(this->getConstPtr_vals(), std::get<0>(changeList[i]), std::get<1>(changeList[i]), std::get<2>(changeList[i]));
         }
-        rnode->bitSize_ += sumWR_increment;
+        rnode->stccSize_ += sumWR_increment;
       }
 
       if (numSrcWCodesInL) {
-        // {
-        //   std::cout << "numSrcWCodesInL = " << numSrcWCodesInL << std::endl;
-        // }
         const uint16_t sumWL_ins = static_cast<uint16_t>(StepCodeUtil::sumW(srcWCodes, 0, 2 * numSrcWCodesInL));
         const uint16_t tailBitPos_new = this->calcBitPos(2 * childIdx) + sumWL_ins;
-        this->bitSize_ = tailBitPos_new;
+        this->stccSize_ = tailBitPos_new;
         const uint16_t numTail = numL_new - (childIdx + numSrcWCodesInL);
         if (numTail) {
           const uint16_t tailBitPos_old = this->calcBitPos(2 * (childIdx + numChild_del));
           const uint16_t w = this->calcBitPos(2 * (childIdx + numChild_del + numTail)) - tailBitPos_old;
-          this->bitSize_ += w;
+          this->stccSize_ += w;
           if (tailBitPos_new != tailBitPos_old) {
-            if (this->bitCapacity_ < this->bitSize_) {
-              this->bitCapacity_ = this->setBitCapacity(this->bitSize_);
-            }
-            this->mvVals(this->getConstPtr_vals(), tailBitPos_old, tailBitPos_new, w);
+            this->reserveBitCapacity(this->stccSize_);
+            this->stcc_.mvVals(this->getConstPtr_vals(), tailBitPos_old, tailBitPos_new, w);
           }
-          if (numChild_ins != numChild_del) {
-            this->stcc_.mvWCodes(this->getConstPtr_wCodes(), 2 * (childIdx + numChild_del), 2 * (childIdx + numChild_ins), 2 * numTail);
-          }
+          this->stcc_.mvWCodes(this->getConstPtr_wCodes(), 2 * (childIdx + numChild_del), 2 * (childIdx + numChild_ins), 2 * numTail);
         } else {
-          if (this->bitCapacity_ < this->bitSize_) {
-            this->bitCapacity_ = this->setBitCapacity(this->bitSize_);
-          }
+          this->reserveBitCapacity(this->stccSize_);
         }
         this->stcc_.mvWCodes(srcWCodes, 0, 2 * childIdx, 2 * numSrcWCodesInL);
         this->updateWCodesAuxM(2 * childIdx, 2 * numL_new);
-      } else {
-        this->bitSize_ = this->calcBitPos(2 * numL_new); // shrink (just change bitSize)
+      } else { // shrink
+        this->stccSize_ = this->calcBitPos(2 * numL_new); // shrink (just change bitSize)
+        this->shrinkBitCapacity();
         this->updateWCodesAuxM(2 * numL_new - 1, 2 * numL_new);
       }
       this->numChildren_ = static_cast<uint8_t>(numL_new);
@@ -780,14 +717,13 @@ namespace itmmti
      const uint64_t * srcWCodes,
      const uint16_t sumW_ins,
      const uint16_t sumW_del,
-     const uint8_t numChild_ins,
-     const uint8_t numChild_del //!< Length of wCodes of tgt to delete.
+     const uint16_t numChild_ins,
+     const uint16_t numChild_del //!< Length of wCodes of tgt to delete.
      ) noexcept {
-      // {//debug
-      //   std::cerr << __FUNCTION__ << ": idxBase = " << idxBase << ", childIdx = " << (int)childIdx << ", sumW_ins = " << (int)sumW_ins
-      //             << ", numChild_ins = " << (int)numChild_ins << ", numChild_del = " << (int)numChild_del << ", insertMorS = " << insertMorS << std::endl;
-      //   // btmPtrs_[insertMorS][idxBase / kBtmB]->printDebugInfo(std::cerr);
-      // }
+      {//debug
+        std::cerr << __func__ << ": childIdx = " << childIdx << ", sumW_ins = " << (int)sumW_ins << ", sumW_del = " << sumW_del
+                  << ", numChild_ins = " << (int)numChild_ins << ", numChild_del = " << (int)numChild_del << std::endl;
+      }
       const uint16_t tailNum = this->numChildren_ - (childIdx + numChild_del); // at least 0 by assumption.
       uint16_t tailW = 0;
       if (tailNum) {
@@ -796,7 +732,7 @@ namespace itmmti
       }
       this->stcc_.mvWCodes(srcWCodes, 0, 2 * childIdx, 2 * numChild_ins);
       this->numChildren_ += numChild_ins - numChild_del;
-      this->updateWCodesAuxM(2 * childIdx, 2 * btmNodeM.numChildren_);
+      this->updateWCodesAuxM(2 * childIdx, 2 * this->numChildren_);
       if (sumW_ins != sumW_del) {
         const uint16_t newBitSize = this->stccSize_ + sumW_ins - sumW_del;
         this->reserveBitCapacity(newBitSize);
@@ -813,7 +749,7 @@ namespace itmmti
      const uint16_t childIdx, //!< Beginning childIdx
      const uint64_t * newWeights, //!< Storing weights to insert to stcc
      const uint64_t * newVals, //!< Storing new values to insert
-     const uint8_t numChild_ins
+     const uint16_t numChild_ins
      ) noexcept {
       // {//debug
       //   std::cerr << __FUNCTION__ << ": lnode = " << lnode << ", rnode = " << rnode
@@ -836,21 +772,17 @@ namespace itmmti
     void writeNewElemInTwo
     (
      BtmNodeT * rnode,
-     const uint16_t childIdx_ins, //!< Beginning childIdx relative from beginning position of "this" node
+     uint16_t childIdx_ins, //!< Beginning childIdx relative from beginning position of "this" node
      const uint64_t * newWeights, //!< Storing weights to insert to stcc
      const uint64_t * newVals, //!< Storing new values to insert
-     const uint8_t numChild_ins
+     uint16_t numChild_ins
      ) {
       auto lnode = this;
       uint16_t numL = lnode->getNumChildren();
       uint16_t numNewElemInL = 0;
       if (childIdx_ins < numL) { // Insert new elements to lnode
         uint64_t bitPos = lnode->calcBitPos(2 * childIdx_ins);
-        numNewElemInL = std::min(numChild_ins, static_cast<uint16_t>(numL - childIdx_ins));
-        // {//debug
-        //   std::cout << "insert to l: (" << lnode << ")" << numNewElemInL << std::endl;
-        //   // lnode->printStatistics(std::cout, true);
-        // }
+        numNewElemInL = std::min(static_cast<uint16_t>(numChild_ins), static_cast<uint16_t>(numL - childIdx_ins));
         for (uint16_t ci = childIdx_ins; ci < childIdx_ins + numNewElemInL; ++ci) {
           uint8_t w = lnode->stcc_.readW(2 * ci);
           lnode->stcc_.writeWBits(newWeights[ci - childIdx_ins], bitPos, w);
@@ -861,23 +793,13 @@ namespace itmmti
         }
       }
       if (numNewElemInL < numChild_ins) { // Insert new elements to rnode
-        // {//debug
-        //   std::cout << "insert to r:" << std::endl;
-        //   rnode->printStatistics(std::cout, true);
-        // }
         childIdx_ins += numNewElemInL - numL;
         uint64_t bitPos = rnode->calcBitPos(2 * childIdx_ins);
         for (uint16_t ci = childIdx_ins; ci < childIdx_ins + numChild_ins - numNewElemInL; ++ci) {
           uint8_t w = rnode->stcc_.readW(2 * ci);
-          // std::cout << "ci = " << ci
-          //           << ", w = " << (int)w
-          //           << ", weight = " << weights[ci - childIdx_ins] << std::endl;
           rnode->stcc_.writeWBits(newWeights[ci - childIdx_ins + numNewElemInL], bitPos, w);
           bitPos += w;
           w = rnode->stcc_.readW(2 * ci + 1);
-          // std::cout << "ci = " << ci
-          //           << ", w = " << (int)w
-          //           << ", val = " << vals[ci - childIdx_ins] << std::endl;
           rnode->stcc_.writeWBits(newVals[ci - childIdx_ins + numNewElemInL], bitPos, w);
           bitPos += w;
         }
@@ -894,19 +816,24 @@ namespace itmmti
      const BtmNodeT * rnode,
      const uint16_t childIdx, //!< Beginning childIdx relative from beginning position of "this" node
      const uint64_t * srcWCodes,
-     const int16_t sumW_diff,
-     const uint8_t numChild_ins,
-     const uint8_t numChild_del //!< Length of wCodes of tgt to delete.
+     const uint16_t sumW_ins,
+     const uint16_t sumW_del,
+     const uint16_t numChild_ins,
+     const uint16_t numChild_del //!< Length of wCodes of tgt to delete.
      ) noexcept {
-      // {//debug
-      //   std::cerr << __FUNCTION__ << ": idxBase = " << idxBase << ", childIdx = " << (int)childIdx << ", sumW_ins = " << (int)sumW_ins
-      //             << ", numChild_ins = " << (int)numChild_ins << ", numChild_del = " << (int)numChild_del << ", insertMorS = " << insertMorS << std::endl;
-      //   // btmPtrs_[insertMorS][idxBase / kBtmB]->printDebugInfo(std::cerr);
-      // }
+      {//debug
+        std::cerr << __func__ << ": childIdx = " << childIdx << ", sumW_ins = " << sumW_ins << ", sumW_del = " << sumW_del
+                  << ", numChild_ins = " << (int)numChild_ins << ", numChild_del = " << (int)numChild_del
+                  << ", this(" << this << ")->getNumChildren() = " << this->getNumChildren()
+                  << ", rnode(" << rnode << ")->getNumChildren() = " << rnode->getNumChildren() << std::endl;
+        // this->printStatistics(std::cout, true);
+        // rnode->printStatistics(std::cout, true);
+      }
+      const uint16_t sumW_diff = static_cast<uint16_t>(sumW_ins - sumW_del);
       uint16_t growStccSize = this->stccSize_;
       uint16_t growNum = this->numChildren_;
       {
-        const uint16_t newBitSize = growStccSize + rnode->stccSize_ + sumW_diff;
+        const uint16_t newBitSize = static_cast<uint16_t>(growStccSize + rnode->stccSize_ + sumW_diff);
         this->reserveBitCapacity(newBitSize);
         this->stccSize_ = newBitSize;
       }
@@ -915,18 +842,18 @@ namespace itmmti
         if (tailNum) {
           const uint16_t tailW = growStccSize - this->calcBitPos(2 * (childIdx + numChild_del));
           this->stcc_.mvWCodes(this->stcc_.getConstPtr_wCodes(), 2 * (childIdx + numChild_del), 2 * (childIdx + numChild_ins), 2 * tailNum);
-          this->stcc_.mvVals(this->stcc_.getConstPtr_vals(), growStccSize - tailW, growStccSize + sumW_diff - tailW, tailW);
+          this->stcc_.mvVals(this->stcc_.getConstPtr_vals(), growStccSize - tailW, static_cast<uint16_t>(growStccSize + sumW_diff - tailW), tailW);
         }
         this->stcc_.mvWCodes(srcWCodes, 0, 2 * childIdx, 2 * numChild_ins);
         growNum += numChild_ins - numChild_del;
         growStccSize += sumW_diff;
         this->stcc_.mvWCodes(rnode->stcc_.getConstPtr_wCodes(), 0, 2 * growNum, 2 * rnode->numChildren_);
         this->stcc_.mvVals(rnode->stcc_.getConstPtr_vals(), 0, growStccSize, rnode->stccSize_);
-        this->numChildren_ = growNum + rnode->numChildren_;
+        this->numChildren_ = static_cast<uint8_t>(growNum + rnode->numChildren_);
       } else {
         const uint16_t childIdxInR = childIdx - growNum;
         if (childIdxInR) {
-          const uint16_t stccSize1 = rnode->calcBitPos(2 * childIdxInR1);
+          const uint16_t stccSize1 = rnode->calcBitPos(2 * childIdxInR);
           this->stcc_.mvWCodes(rnode->stcc_.getConstPtr_wCodes(), 0, 2 * growNum, 2 * childIdxInR);
           this->stcc_.mvVals(rnode->stcc_.getConstPtr_vals(), 0, growStccSize, stccSize1);
           growNum += childIdxInR;
@@ -934,14 +861,14 @@ namespace itmmti
         }
         this->stcc_.mvWCodes(srcWCodes, 0, 2 * growNum, 2 * numChild_ins);
         growNum += numChild_ins;
-        growStccSize += sumW_diff;
+        growStccSize += sumW_ins;
         const uint16_t tailNum = rnode->numChildren_ - (childIdxInR + numChild_del);
         if (tailNum) {
           const uint16_t tailW = rnode->stccSize_ - rnode->calcBitPos(2 * (childIdxInR + numChild_del));
           this->stcc_.mvWCodes(rnode->stcc_.getConstPtr_wCodes(), 2 * (childIdxInR + numChild_del), 2 * growNum, 2 * tailNum);
           this->stcc_.mvVals(rnode->stcc_.getConstPtr_vals(), rnode->stccSize_ - tailW, growStccSize, tailW);
         }
-        this->numChildren_ = growNum + tailNum;
+        this->numChildren_ = static_cast<uint8_t>(growNum + tailNum);
       }
     }
 
@@ -958,9 +885,9 @@ namespace itmmti
      BTreeNodeT * parent,
      const uint8_t idxInSibling
      ) {
-      // {//debug
-      //   std::cout << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
-      // }
+      {//debug
+        std::cerr << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
+      }
       assert(numChild_ins <= kBtmB);
       assert(childIdx + numChild_del <= numChildren_);
 
@@ -995,16 +922,13 @@ namespace itmmti
       }
 
       if (numChildren_ - numChild_del + numChild_ins <= kBtmB) { // Easy case: This node can accommodate inserting elements.
-        {//debug
-          std::cout << __FUNCTION__ << ": easy case" << std::endl;
-        }
-        makeSpace(childIdx, srcWCodes, sumW_ins, sumW_del, numChild_ins, numChild_del);
+        makeSpace(childIdx, wCodesTemp, sumW_ins, sumW_del, numChild_ins, numChild_del);
         this->writeNewElem(childIdx, weights, vals, numChild_ins);
         return;
       }
 
       if (idxInSibling) { // Check previous sibling.
-        lnode = reinterpret_cast<BtmNodeT *>(parent->getChildPtr(idxInSibling - 1));
+        auto lnode = reinterpret_cast<BtmNodeT *>(parent->getChildPtr(idxInSibling - 1));
         uint16_t num_old = lnode->getNumChildren();
         if (num_old <= kBtmB + numChild_del - numChild_ins) { // Previous sibling can accommodate overflowed elements.
           this->overflowToL_wCodes(lnode, wCodesTemp, numChild_ins, childIdx, numChild_del);
@@ -1025,9 +949,6 @@ namespace itmmti
       }
 
       { // This node has to be split
-        {//debug
-          std::cout << __FUNCTION__ << ": split" << std::endl;
-        }
         auto rnode = new BtmNodeT();
         this->overflowToR_wCodes(rnode, wCodesTemp, numChild_ins, childIdx, numChild_del);
         this->writeNewElemInTwo(rnode, childIdx, weights, vals, numChild_ins);
@@ -1048,10 +969,14 @@ namespace itmmti
      BTreeNodeT * parent,
      const uint8_t idxInSibling
      ) noexcept {
-      // {//debug
-      //   std::cout << __func__ << ": numChild_ins = " << numChild_ins << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del << std::endl;
-      // }
-      assert(numChild_ins <= numChild_del);
+      {//debug
+        std::cerr << __func__ << "(" << this << "): numChild_ins = " << numChild_ins
+                  << ", childIdx = " << childIdx << ", numChild_del = " << numChild_del
+                  << ", numChildren_ = " << (int)numChildren_
+                  << ", stccSize _ = " << stccSize_ << ", stccCapacity_ = " << stccCapacity_
+                  << ", parent = " << parent << ", idxInSibling = " << (int)idxInSibling << std::endl;
+      }
+      assert(numChild_ins <= numChild_del); // Assume that # insertion is at most # deletion.
       assert(childIdx + numChild_del <= numChildren_);
 
       uint64_t wCodesTemp[2 * kBtmB / StepCodeUtil::kWCNum];
@@ -1081,14 +1006,13 @@ namespace itmmti
       }
 
       if (sumWeights_ins != sumWeights_del) {
-        parent->changePSumFrom(idxInSibling, static_cast<int64_t>(sumWeights_ins) - static_cast<int64_t>(sumWeights_del));
+        parent->changePSumFrom(idxInSibling, static_cast<int64_t>(sumWeights_ins - sumWeights_del));
       }
 
       const uint16_t num_new = numChildren_ - numChild_del + numChild_ins;
       if (num_new == 0) {
         delete this;
-        uint8_t idxOfPrev = 0;
-        parent->handleDeleteOfBtm(idxOfPrev);
+        parent->handleDeleteOfBtm(idxInSibling);
         return;
       }
       if (num_new < kBtmB / 2) {
@@ -1096,14 +1020,14 @@ namespace itmmti
           auto lnode = reinterpret_cast<BtmNodeT *>(parent->getChildPtr(idxInSibling - 1));
           const uint16_t lnum = lnode->getNumChildren();
           if (lnum + num_new <= 3 * kBtmB / 4) {
-            lnode->merge(this, lnum + childIdx, srcWCodes, sumW_ins - sumW_del, numChild_ins, numChild_del);
+            lnode->merge(this, lnum + childIdx, wCodesTemp, sumW_ins, sumW_del, numChild_ins, numChild_del);
+            lnode->updateWCodesAuxM(2 * lnum, 2 * lnode->numChildren_);
             if (numChild_ins) {
               lnode->writeNewElem(lnum + childIdx, weights, vals, numChild_ins);
             }
-            parent->changePSumAt(idxInSibling - 1, parent->getPSum(idxInSibling) + parent->getWeightOfChild(idxInSibling));
-            parent->changePSumAt(idxInSibling, 0);
+            parent->changePSumAt(idxInSibling - 1, parent->getPSum(idxInSibling + 1));
             delete this;
-            parent->handleDeleteOfChild(0);
+            parent->handleDeleteOfBtm(idxInSibling);
             return;
           }
         }
@@ -1111,23 +1035,20 @@ namespace itmmti
           auto rnode = reinterpret_cast<BtmNodeT *>(parent->getChildPtr(idxInSibling + 1));
           const uint16_t rnum = rnode->getNumChildren();
           if (rnum + num_new <= 3 * kBtmB / 4) {
-            this->merge(rnode, childIdx, srcWCodes, sumW_ins - sumW_del, numChild_ins, numChild_del);
+            this->merge(rnode, childIdx, wCodesTemp, sumW_ins, sumW_del, numChild_ins, numChild_del);
+            this->updateWCodesAuxM(2 * childIdx, 2 * this->numChildren_);
             if (numChild_ins) {
               this->writeNewElem(childIdx, weights, vals, numChild_ins);
             }
-            parent->changePSumAt(idxInSibling, parent->getPSum(idxInSibling + 1) + parent->getWeightOfChild(idxInSibling + 1));
-            parent->changePSumAt(idxInSibling + 1, 0);
+            parent->changePSumAt(idxInSibling, parent->getPSum(idxInSibling + 2));
             delete rnode;
-            // parent->handleDeleteBtmNode();
+            parent->handleDeleteOfBtm(idxInSibling + 1);
             return;
           }
         }
       }
 
-      {//debug
-        std::cout << __FUNCTION__ << ": easy case" << std::endl;
-      }
-      makeSpace(childIdx, srcWCodes, sumW_ins, sumW_del, numChild_ins, numChild_del);
+      makeSpace(childIdx, wCodesTemp, sumW_ins, sumW_del, numChild_ins, numChild_del);
       if (numChild_ins) {
         this->writeNewElem(childIdx, weights, vals, numChild_ins);
       }
@@ -1146,6 +1067,9 @@ namespace itmmti
      BTreeNodeT * parent,
      const uint8_t idxInSibling
      ) {
+      {//debug
+        std::cerr << __func__ << ": num = " << num << ", idx = " << idx << std::endl;
+      }
       assert(idx + num <= 2 * static_cast<uint16_t>(numChildren_));
 
       const uint16_t bitPos0 = this->calcBitPos(idx);
@@ -1158,7 +1082,7 @@ namespace itmmti
         const uint8_t w_new = StepCodeUtil::calcSteppedW(array[i - idx]);
         sumW_del += w_old;
         sumW_ins += w_new;
-        if (i / 2) {
+        if (i % 2 == 0) {
           weights_diff += array[i - idx] - stcc_.readWBits(bitPos, w_old);
         }
         stcc_.writeWCode(StepCodeUtil::calcWCodeFromSteppedW(w_new), i);
@@ -1167,15 +1091,17 @@ namespace itmmti
       this->updateWCodesAuxM(idx, idx + num);
 
       if (sumW_ins != sumW_del) {
-        if (sumW_ins > sumW_del && bitCapacity_ < bitSize_ + sumW_ins - sumW_del) {
-          this->bitCapacity_ = this->setBitCapacity(bitSize_ + sumW_ins - sumW_del);
+        const uint16_t newStccSize = this->stccSize_ + sumW_ins - sumW_del;
+        if (newStccSize != this->stccSize_) {
+          this->reserveBitCapacity(newStccSize);
+          this->stcc_.mvVals(this->stcc_.getConstPtr_vals(), bitPos, bitPos0 + sumW_ins, this->stccSize_ - bitPos);
         }
-        this->changeValPos(bitPos0, sumW_ins, sumW_del);
+        this->stccSize_ = newStccSize;
       }
       bitPos = bitPos0;
       for (uint16_t i = idx; i < idx + num; ++i) {
-        uint8_t w = stcc_.readW(i);
-        stcc_.writeWBits(array[i - idx], bitPos, w);
+        uint8_t w = this->stcc_.readW(i);
+        this->stcc_.writeWBits(array[i - idx], bitPos, w);
         bitPos += w;
       }
 
@@ -1192,12 +1118,12 @@ namespace itmmti
      bool includeThis = true
      ) const noexcept {
       size_t size = sizeof(*this) * includeThis;
-      return size + bitCapacity_ / 8;
+      return size + stccCapacity_ / 8;
     }
 
 
     size_t calcMemBytesDynArray() const noexcept {
-      return bitCapacity_ / 8;
+      return stccCapacity_ / 8;
     }
 
 
@@ -1211,36 +1137,36 @@ namespace itmmti
       const size_t sumWeights = calcSumOfWeight();
       os << "num of children = " << static_cast<uint64_t>(numChildren_)
          << ", sum of weights = " << sumWeights << std::endl;
-      os << "bit size = " << bitSize_ << ", bit capacity = " << bitCapacity_ << std::endl;
+      os << "bit size = " << stccSize_ << ", bit capacity = " << stccCapacity_ << std::endl;
       os << "Total: " << calcMemBytes() << " bytes" << std::endl;
       os << "Memory usage for dynamic arrays of step code: " << calcMemBytesDynArray() << " bytes" << std::endl;
       if (verbose) {
         {
           const uint16_t num = static_cast<uint16_t>(numChildren_) * 2;
-          std::cout << "dump bit witdth stored in wCodes (" << stcc_.getConstPtr_wCodes() << ")" << std::endl;
+          os << "dump bit witdth stored in wCodes (" << stcc_.getConstPtr_wCodes() << ")" << std::endl;
           for (uint64_t i = 0; i < num; ++i) {
-            std::cout << (uint64_t)(stcc_.readW(i)) << " ";
+            os << (uint64_t)(stcc_.readW(i)) << " ";
           }
-          std::cout << std::endl;
+          os << std::endl;
         }
         {
           const uint16_t num = static_cast<uint16_t>(numChildren_) * 2;
-          std::cout << "dump values" << std::endl;
+          os << "dump values" << std::endl;
           for (uint64_t i = 0; i < num; ++i) {
-            std::cout << stcc_.read(i) << " ";
+            os << stcc_.read(i) << " ";
           }
-          std::cout << std::endl;
+          os << std::endl;
         }
         {
-          std::cout << "dump bits in vals_ (" << stcc_.getConstPtr_vals() << ")" << std::endl;
-          for (uint64_t i = 0; i < (bitSize_ + 63) / 64; ++i) {
-            std::cout << "(" << i << ")";
+          os << "dump bits in vals_ (" << stcc_.getConstPtr_vals() << ")" << std::endl;
+          for (uint64_t i = 0; i < (stccSize_ + 63) / 64; ++i) {
+            os << "(" << i << ")";
             for (uint64_t j = 0; j < 64; ++j) {
-              std::cout << bits::readWBits_S(stcc_.getConstPtr_vals(), 64 * i + 63 - j, ctcbits::UINTW_MAX(1));
+              os << bits::readWBits_S(stcc_.getConstPtr_vals(), 64 * i + 63 - j, ctcbits::UINTW_MAX(1));
             }
-            std::cout << " ";
+            os << " ";
           }
-          std::cout << std::endl;
+          os << std::endl;
         }
       }
       os << "BtmNodeForPSumWithVal object (" << this << ") " << __func__ << "(" << verbose << ") END" << std::endl;
@@ -1253,10 +1179,10 @@ namespace itmmti
   /*!
    * @brief Dynamic partial sum data structure implemented by B+tree, where each leaf is associated with value.
    * @tparam kB Arity for internal node of B+tree, which should be in {32, 64, 128}.
-   * @tparam kBtmB Arity for bottom node of B+tree, which should be in {32, 64, 128}.
+   * @tparam kBtmB Arity for bottom node of B+tree, which should be in {16, 32, 64, 128}.
    * @par Notation
    */
-  template<typename tparam_BTreeNodeT, typename LeafValT, typename tparam_BtmNodeT>
+  template<typename tparam_BTreeNodeT, typename tparam_BtmNodeT>
   class PSumWithValue
   {
   public:
@@ -1322,7 +1248,7 @@ namespace itmmti
      * @brief Return if data structure is ready.
      */
     bool isReady() const noexcept {
-      return (sr_.root_ != NULL);
+      return (sr_.root_ != nullptr);
     }
 
 
@@ -1341,7 +1267,7 @@ namespace itmmti
     }
 
 
-    const BTreeNodeT * getConstRoot() noexcept {
+    const BTreeNodeT * getConstRoot() const noexcept {
       return sr_.root_;
     }
 
@@ -1359,7 +1285,7 @@ namespace itmmti
      uint8_t & retIdx //!< [out] To capture sibling idx of returned bottom node.
      ) const noexcept {
       assert(isReady());
-      assert(pos < sr_.root_->getSumOfWeight());
+      assert(pos < getSumOfWeight());
 
       sr_.root_->searchPos(pos, retNode, retIdx);
 
@@ -1474,7 +1400,7 @@ namespace itmmti
     void printStatistics
     (
      std::ostream & os,
-     const bool verbose = false
+     const bool verbose
      ) const noexcept {
       os << "PSumWithValue object (" << this << ") " << __func__ << "(" << verbose << ") BEGIN" << std::endl;
       if (isReady()) {
@@ -1490,6 +1416,16 @@ namespace itmmti
            << " bytes, OccuRate = " << ((calcNumSlotsBtmPart()) ? 100.0 * calcNumUsedBtmPart() / calcNumSlotsBtmPart() : 0)
            << " (= 100*" << calcNumUsedBtmPart() << "/" << calcNumSlotsBtmPart() << ")" << std::endl;
         os << "Memory usage for dynamic arrays of step code: " << calcMemBytesDynArrayOfStepCode() << " bytes" << std::endl;
+        if (verbose) {
+          getConstRoot()->printStatistics(os, true);
+          os << "Btm Nodes" << std::endl;
+          uint8_t idxInSib = 0;
+          auto borderNode = sr_.root_->getLmBorderNode_DirectJump();
+          while (reinterpret_cast<uintptr_t>(borderNode) != BTreeNodeT::NOTFOUND) {
+            reinterpret_cast<BtmNodeT *>(borderNode->getChildPtr(idxInSib))->printStatistics(os, true);
+            borderNode = borderNode->getNextBtmRef_DirectJump(idxInSib);
+          }
+        }
       } else {
         os << "Data structure is empty (not ready)." << std::endl;
       }
@@ -1497,78 +1433,78 @@ namespace itmmti
     }
 
 
-    // void printDebugInfo(std::ostream & os) const noexcept {
-    //   {
-    //     uint64_t c = UINT64_MAX;
-    //     std::cout << "check runs:" << std::endl;
-    //     uint64_t pos = 0;
-    //     uint64_t len = 0;
-    //     for (auto idxM = searchPosM(pos); idxM != BTreeNode<B>::NOTFOUND; idxM = getNextIdxM(idxM)) {
-    //       ++pos;
-    //       len += getWeightFromIdxM(idxM);
-    //       if (getWeightFromIdxM(idxM) == 0) {
-    //         std::cout << "detected 0 length run: " << idxM << ", " << pos << std::endl;
-    //       }
-    //       if (c == getCharFromIdxM(idxM)) {
-    //         auto idxM0 = getPrevIdxM(idxM);
-    //         std::cout << "detected consecutive runs having the same char: " 
-    //                   << idxM << ", " << pos << ", (" << c << ", " << getWeightFromIdxM(idxM0) << ")" << ", (" << c << ", " << getWeightFromIdxM(idxM) << ")" << std::endl;
-    //       }
-    //       c = getCharFromIdxM(idxM);
-    //     }
-    //     std::cout << "run: " << pos << ", len: " << len << std::endl;
-    //   }
+    uint64_t debugBtm
+    (
+     const BtmNodeT * btm,
+     std::ostream & os
+     ) const noexcept {
+      const bool isLmBtm = (btm == reinterpret_cast<const BtmNodeT *>(getConstRoot()->getLmBtm_NoDirectJump()));
+      const uint64_t sumWeights = btm->calcSumOfWeight();
+      const uint16_t numChildren = btm->getNumChildren();
+      uint64_t sum = 0;
+      for (uint16_t i = isLmBtm; i < numChildren; ++i) {
+        const uint64_t weight = btm->getWeight(i);
+        if (weight == 0) {
+          os << "error!! weightless element: i = " << (int)i << ", this = " << this << std::endl;
+        }
+        sum += weight;
+      }
+      if (sum != sumWeights) {
+        os << "error!! weights does not match: sum = " << sum << ", sumWeights = " << sumWeights << std::endl;
+      }
+      return sumWeights;
+    }
 
-    //   {
-    //     uint64_t pos = 0;
-    //     for (auto idxM = searchPosM(pos); idxM != BTreeNode<B>::NOTFOUND; idxM = getNextIdxM(idxM)) {
-    //       os << "(" << idxM << ":" << getCharFromIdxM(idxM) << "^" << getWeightFromIdxM(idxM) << ") ";
-    //     }
-    //     os << std::endl;
-    //   }
 
-    //   {
-    //     const uint64_t numBtmM = idxM2S_.size() / B;
-    //     os << "information on M" << std::endl;
-    //     for (uint64_t i = 0; i < numBtmM; ++i) {
-    //       const auto nextBtmM = getNextBtmM(i);
-    //       os << "[" << i*B << "-" << (i+1)*B-1 << "] (num=" << (int)getNumChildrenM(i) << " lbl=" 
-    //          << labelM_[i] << " par=" << parentM_[i] << " sib=" << (int)idxInSiblingM_[i] << ") "
-    //          << "=> " << nextBtmM * B << std::endl;
-    //       for (uint64_t j = 0; j < getNumChildrenM(i); ++j) {
-    //         if (j < getNumChildrenM(i) && B*i+j != idxS2M_.read(idxM2S_.read(B*i+j))) {
-    //           os << "!!"; // WARNING, links are not maintained correctly
-    //         }
-    //         os << idxM2S_.read(B*i+j) << "(" << getWeightFromIdxM(B*i+j) << ")  ";
-    //       }
-    //       os << std::endl;
-    //     }
-    //   }
+    void debugNode
+    (
+     const BTreeNodeT * node,
+     std::ostream & os
+     ) const noexcept {
+      const uint16_t numChildren = node->getNumChildren();
+      if (node->isBorder()) {
+        for (uint16_t i = 0; i < numChildren; ++i) {
+          const auto btm = reinterpret_cast<BtmNodeT *>(node->getChildPtr(static_cast<uint8_t>(i)));
+          const uint64_t btmWeight = debugBtm(btm, os);
+          const uint64_t psumWeight = node->getWeightOfChild(static_cast<uint8_t>(i));
+          if (btmWeight != psumWeight) {
+            os << "error!! btm weight: i = " << (int)i << ", btmWeight = " << btmWeight << ", psumWeight = " << psumWeight << std::endl;
+            node->printStatistics(os, true);
+            btm->printStatistics(os, true);
+          }
+        }
+      } else {
+        for (uint16_t i = 0; i < numChildren; ++i) {
+          const auto child = node->getChildPtr(static_cast<uint8_t>(i));
+          const uint64_t childWeight = child->getSumOfWeight();
+          const uint64_t psumWeight = node->getWeightOfChild(static_cast<uint8_t>(i));
+          if (childWeight != psumWeight) {
+            os << "error!! weight: i = " << (int)i << ", childWeight = " << childWeight << ", psumWeight = " << psumWeight << std::endl;
+            node->printStatistics(os, true);
+            child->printStatistics(os, true);
+          }
+          if (node != child->getParent()) {
+            os << "error!! child-parent: i = " << (int)i << ", parent = " << node << ", parent of child = " << child->getParent() << std::endl;
+            node->printStatistics(os, true);
+            child->printStatistics(os, true);
+          }
+          debugNode(child, os);
+        }
+      }
+    }
 
-    //   {
-    //     const uint64_t numBtmS = idxS2M_.size() / B;
-    //     os << "information on S" << std::endl;
-    //     for (uint64_t i = 0; i < numBtmS; ++i) {
-    //       const auto nextIdxS = getNextIdxS(i*B + numChildrenS_[i] - 1);
-    //       os << "[" << i*B << "-" << (i+1)*B-1 << "] (num=" << (int)numChildrenS_[i] << " ch=" << charS_[i] << " par=" 
-    //          << parentS_[i] << " sib=" << (int)idxInSiblingS_[i] << ") "
-    //          << "=> " << nextIdxS << std::endl;
-    //       for (uint64_t j = 0; j < B; ++j) {
-    //         os << idxS2M_.read(B*i+j) << "  ";
-    //       }
-    //       os << std::endl;
-    //     }
-    //   }
 
-    //   os << "Alphabet: " << std::endl;
-    //   for (const auto * rootS = getFstRootS();
-    //        reinterpret_cast<uintptr_t>(rootS) != BTreeNode<B>::NOTFOUND;
-    //        rootS = getNextRootS(rootS)) {
-    //     const uint64_t btmS = reinterpret_cast<uintptr_t>(rootS->getLmBtm());
-    //     os << "(" << charS_[btmS] << ", " << rootS->getSumOfWeight(kRow0) << ") ";
-    //   }
-    //   os << std::endl;
-    // }
+    void printDebugInfo
+    (
+     std::ostream & os
+     ) const noexcept {
+      os << __func__ << ": PSumWithValue" << std::endl;
+      if (!isReady()) {
+        return;
+      }
+      // printStatistics(os, true);
+      debugNode(sr_.root_, os);
+    }
   };
 } // namespace itmmti
 
