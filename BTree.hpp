@@ -179,6 +179,10 @@ namespace itmmti
     (
      uint8_t i //!< in [0..numChildren_).
      ) const noexcept {
+      if (i >= numChildren_) {
+        std::cout << this << ", i = " << (int)i << ", numChildren_ = " << (int)numChildren_ << std::endl;
+        this->printStatistics(std::cout, false);
+      }
       assert(i < numChildren_);
 
       return children_[i];
@@ -1307,15 +1311,18 @@ namespace itmmti
 
 
     /*!
-     * @brief Handle deletion of bottom child at idx
+     * @brief Handle deletion of child of btree node type at idx
      * @attention assume that tree will not be empty
      */
     void handleDeleteOfChild
     (
      const uint8_t idx
      ) {
-      assert(isBorder());
-      assert(idx <= numChildren_);
+      {//debug
+        std::cerr << __func__ << this << ": idx = " << (int)idx << std::endl;
+      }
+      assert(!isBorder());
+      assert(idx < numChildren_);
 
       const uint8_t num_new = numChildren_ - 1;
       if (num_new == 0) {
@@ -1323,14 +1330,18 @@ namespace itmmti
         delete this;
         return;
       }
+
+      if (idx == 0) {
+        this->setLmJumpNode(this->getChildPtr(1)->getLmJumpNode());
+      }
+
       if (!isRoot() && num_new < kB / 2) {
         if (idxInSibling_) { // Check previous sibling if it can be merged
           auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
           const uint16_t lnum = lnode->getNumChildren();
           if (lnum + num_new <= 3 * kB / 4) {
-            lnode->mergeWithOneDelete(this, idx, false);
-            parent_->changePSumAt(idxInSibling_ - 1, parent_->getPSum(idxInSibling_) + parent_->getWeightOfChild(idxInSibling_));
-            parent_->changePSumAt(idxInSibling_, 0);
+            lnode->mergeBTreeChildrenWithOneDelete(this, idx, false);
+            parent_->changePSumAt(idxInSibling_ - 1, parent_->getPSum(idxInSibling_ + 1));
             parent_->handleDeleteOfChild(idxInSibling_);
             delete this;
             return;
@@ -1341,9 +1352,8 @@ namespace itmmti
           const uint16_t rnum = rnode->getNumChildren();
           if (rnum + num_new <= 3 * kB / 4) {
             this->mergeBTreeChildrenWithOneDelete(rnode, idx, true);
-            parent_->changePSumAt(idxInSibling_, parent_->getPSum(idxInSibling_ + 1) + parent_->getWeightOfChild(idxInSibling_ + 1));
-            parent_->changePSumAt(idxInSibling_ + 1, 0);
-            parent_->handleDeleteOfChild(idxInSibling_);
+            parent_->changePSumAt(idxInSibling_, parent_->getPSum(idxInSibling_ + 2));
+            parent_->handleDeleteOfChild(idxInSibling_ + 1);
             delete rnode;
             return;
           }
@@ -1361,11 +1371,13 @@ namespace itmmti
       if (isRoot() && num_new == 1 && parent_ != nullptr) {
         BTreeNodeT * newRoot = children_[0];
         newRoot->setParentRef(parent_, idxInSibling_);
+        newRoot->flags_ |= isRootBit; // enRoot
         if (this->isUnderSuperRoot()) {
           reinterpret_cast<SuperRootT *>(parent_)->setRoot(newRoot);
         } else {
           parent_->setChildPtr(newRoot, idxInSibling_);
         }
+        delete this;
       }
     }
 
@@ -1440,6 +1452,10 @@ namespace itmmti
      const uint8_t idx,
      const bool isIdxOfLeft
      ) {
+      {//debug
+        std::cerr << __func__ << "(" << this << "): rnode = " << rnode
+                  << ", idx = " << (int)idx << ", isIdxOfLeft = " << isIdxOfLeft << std::endl;
+      }
       assert(isBorder());
       assert(static_cast<uint16_t>(idx) < static_cast<uint16_t>(kB) * 2);
 
@@ -1467,71 +1483,136 @@ namespace itmmti
     /*!
      * @brief Handle deletion of bottom child at idx
      */
-    BTreeNodeT * handleDeleteOfBtm
+    // void handleDeleteOfBtm
+    // (
+    //  uint8_t & idx, //!< [in, out]
+    //  BTreeNodeT * retParent //!< [out]
+    //  ) {
+    //   {//debug
+    //     std::cerr << __func__ << this << ": idx = " << (int)idx << ", numChildren_ = " << (int)numChildren_ << std::endl;
+    //   }
+    //   assert(isBorder());
+    //   assert(idx < numChildren_);
+
+    //   retParent = this;
+    //   const uint8_t num_new = numChildren_ - 1;
+    //   if (num_new == 0) {
+    //     retParent = getPrevBtmRef(idx); // idx is modified
+    //     parent_->handleDeleteOfChild(idxInSibling_);
+    //     delete this;
+    //     return;
+    //   }
+    //   if (!isRoot() && num_new < kB / 2) {
+    //     if (idxInSibling_) { // Check previous sibling if it can be merged
+    //       auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
+    //       const uint16_t lnum = lnode->getNumChildren();
+    //       if (lnum + num_new <= 3 * kB / 4) {
+    //         lnode->mergeBtmChildrenWithOneDelete(this, idx, false);
+    //         parent_->changePSumAt(idxInSibling_ - 1, parent_->getPSum(idxInSibling_ + 1));
+    //         parent_->handleDeleteOfChild(idxInSibling_);
+    //         delete this;
+    //         idx = static_cast<uint8_t>(lnum + idx - 1);
+    //         retParent = lnode;
+    //         return;
+    //       }
+    //     }
+    //     if (idxInSibling_ + 1 < parent_->getNumChildren()) { // Check next sibling if it can be merged
+    //       auto rnode = parent_->getChildPtr(idxInSibling_ + 1);
+    //       const uint16_t rnum = rnode->getNumChildren();
+    //       if (rnum + num_new <= 3 * kB / 4) {
+    //         this->mergeBtmChildrenWithOneDelete(rnode, idx, true);
+    //         parent_->changePSumAt(idxInSibling_, parent_->getPSum(idxInSibling_ + 2));
+    //         parent_->handleDeleteOfChild(idxInSibling_ + 1);
+    //         delete rnode;
+    //         --idx;
+    //         return;
+    //       }
+    //     }
+    //   }
+
+    //   // {//debug
+    //   //   std::cout << __FUNCTION__ << ": easy case" << std::endl;
+    //   // }
+    //   for (uint8_t i = idx + 1; i < numChildren_; ++i) {
+    //     putBtm(children_[i], i - 1, getWeightOfChild(i));
+    //   }
+    //   numChildren_ = num_new;
+
+    //   if (isRoot() && num_new == 1 && parent_ != nullptr) {
+    //     BTreeNodeT * newRoot = children_[0];
+    //     newRoot->setParentRef(parent_, idxInSibling_);
+    //     if (this->isUnderSuperRoot()) {
+    //       reinterpret_cast<SuperRootT *>(parent_)->setRoot(newRoot);
+    //     } else {
+    //       parent_->setChildPtr(newRoot, idxInSibling_);
+    //     }
+    //     idx = 0;
+    //     retParent = newRoot;
+    //   } else {
+    //     --idx;
+    //   }
+    // }
+
+
+    /*!
+     * @brief Handle deletion of bottom child at idx
+     */
+    void handleDeleteOfBtm
     (
-     uint8_t & idx //!< [in, out]
+     uint8_t idx //!<
      ) {
+      {//debug
+        std::cerr << __func__ << "(" << this << "): idx = " << (int)idx << ", numChildren_ = " << (int)numChildren_ << std::endl;
+      }
       assert(isBorder());
-      assert(idx <= numChildren_);
+      assert(idx < numChildren_);
 
       const uint8_t num_new = numChildren_ - 1;
       if (num_new == 0) {
-        auto retParentOfPrevBtm = getPrevBtmRef(idx); // idx is modified
         parent_->handleDeleteOfChild(idxInSibling_);
         delete this;
-        return retParentOfPrevBtm;
+        return;
       }
+
+      if (idx == 0 && this->isJumpToBtm()) {
+        this->setLmJumpNode(this->getChildPtr(1));
+      }
+
       if (!isRoot() && num_new < kB / 2) {
         if (idxInSibling_) { // Check previous sibling if it can be merged
           auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
           const uint16_t lnum = lnode->getNumChildren();
           if (lnum + num_new <= 3 * kB / 4) {
-            lnode->mergeBtmChildrenWithOneDelete(this, lnum + idx);
-            parent_->changePSumAt(idxInSibling_ - 1, parent_->getPSum(idxInSibling_) + parent_->getWeightOfChild(idxInSibling_));
-            parent_->changePSumAt(idxInSibling_, 0);
+            lnode->mergeBtmChildrenWithOneDelete(this, idx, false);
+            parent_->changePSumAt(idxInSibling_ - 1, parent_->getPSum(idxInSibling_ + 1));
             parent_->handleDeleteOfChild(idxInSibling_);
             delete this;
-            idx = lnum + idx - 1;
-            return lnode;
+            return;
           }
         }
         if (idxInSibling_ + 1 < parent_->getNumChildren()) { // Check next sibling if it can be merged
           auto rnode = parent_->getChildPtr(idxInSibling_ + 1);
           const uint16_t rnum = rnode->getNumChildren();
           if (rnum + num_new <= 3 * kB / 4) {
-            this->mergeBtmWithOneDelete(rnode, idx);
-            parent_->changePSumAt(idxInSibling_, parent_->getPSum(idxInSibling_ + 1) + parent_->getWeightOfChild(idxInSibling_ + 1));
-            parent_->changePSumAt(idxInSibling_ + 1, 0);
-            parent_->handleDeleteOfChild(idxInSibling_);
+            this->mergeBtmChildrenWithOneDelete(rnode, idx, true);
+            parent_->changePSumAt(idxInSibling_, parent_->getPSum(idxInSibling_ + 2));
+            parent_->handleDeleteOfChild(idxInSibling_ + 1);
             delete rnode;
-            idx = idx - 1;
-            return this;
+            return;
           }
         }
       }
 
       // {//debug
-      //   std::cout << __FUNCTION__ << ": easy case" << std::endl;
+      //   std::cerr << __func__ << "(" << this << "): easy case: idx = " << (int)idx << std::endl;
+      //   if (idxInSibling_ == 6 && numChildren_ == 11 && idx == 0) {
+      //     this->printStatistics(std::cerr, false);
+      //   }
       // }
       for (uint8_t i = idx + 1; i < numChildren_; ++i) {
         putBtm(children_[i], i - 1, getWeightOfChild(i));
       }
       numChildren_ = num_new;
-
-      if (isRoot() && num_new == 1 && parent_ != nullptr) {
-        BTreeNodeT * newRoot = children_[0];
-        newRoot->setParentRef(parent_, idxInSibling_);
-        if (this->isUnderSuperRoot()) {
-          reinterpret_cast<SuperRootT *>(parent_)->setRoot(newRoot);
-        } else {
-          parent_->setChildPtr(newRoot, idxInSibling_);
-        }
-        idx = 0;
-        return newRoot;
-      } else {
-        idx = idx - 1;
-        return this;
-      }
     }
 
 
