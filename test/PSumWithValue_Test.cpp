@@ -108,15 +108,15 @@ namespace itmmti
     using BTreeNodeT = BTreeNode<kB>;
     using BtmNodeT = BtmNodeForPSumWithVal<kBtmB>;
 
-    PSumWithValue<kB, kBtmB> obj;
+    PSumWithValue<BTreeNodeT, BtmNodeT> obj;
     obj.init();
-    obj.printStatistics(std::cout);
+    obj.printStatistics(std::cout, false);
 
     {
       BTreeNodeT * node = nullptr;
       uint8_t idx;
       BtmNodeT * btmNode = obj.getRmBtm(node, idx);
-      node->printStatistics(std::cout);
+      node->printStatistics(std::cout, false);
       btmNode->printStatistics(std::cout, true);
       {
         uint64_t weights[]  = {1, 2, 3, 4};
@@ -131,11 +131,11 @@ namespace itmmti
         btmNode->insert(weights, vals, 4, 1, 0, node, idx);
         btmNode->insert(weights, vals, 4, 1, 0, node, idx);
 
-        obj.printStatistics(std::cout);
+        obj.printStatistics(std::cout, false);
         btmNode->printStatistics(std::cout, true);
 
         btmNode->insert(weights, vals, 4, 1, 0, node, idx);
-        obj.printStatistics(std::cout);
+        obj.printStatistics(std::cout, false);
         btmNode->printStatistics(std::cout, true);
       }
       node = node->getNextBtmRef_DirectJump(idx);
@@ -178,7 +178,7 @@ namespace itmmti
     using BTreeNodeT = BTreeNode<kB>;
     using BtmNodeT = BtmNodeForPSumWithVal<kBtmB>;
 
-    PSumWithValue<kB, kBtmB> obj;
+    PSumWithValue<BTreeNodeT, BtmNodeT> obj;
     obj.init();
 
     uint64_t weights[128];
@@ -227,9 +227,9 @@ namespace itmmti
 
     std::list<uint64_t> naive_list;
 
-    PSumWithValue<kB, kBtmB> obj;
+    PSumWithValue<BTreeNodeT, BtmNodeT> obj;
     obj.init();
-    obj.printStatistics(std::cout);
+    obj.printStatistics(std::cout, false);
 
     uint64_t weights[128];
     uint64_t vals[128];
@@ -244,7 +244,7 @@ namespace itmmti
 
     {
       // size_t num = 98;
-      size_t num = 50000;
+      size_t num = 5000;
       for (uint64_t j = 0; j < num; ++j) {
         std::cout << "insert_loop: " << j << std::endl;
 

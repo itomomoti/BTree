@@ -77,7 +77,7 @@ if(TESTING OR TESTING_ALL)
     enable_testing()
 
     add_test(NAME PSumWithValue_Test COMMAND PSumWithValue_Test)
-    add_test(NAME PSum_Test COMMAND PSum_Test)
+    # add_test(NAME PSum_Test COMMAND PSum_Test)
   endif()
 endif()
 
