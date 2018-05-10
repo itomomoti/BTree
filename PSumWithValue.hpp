@@ -1404,10 +1404,13 @@ namespace itmmti
       os << "PSumWithValue object (" << this << ") " << __func__ << "(" << verbose << ") BEGIN" << std::endl;
       if (isReady()) {
         const size_t sumWeights = getSumOfWeight();
+        const size_t totalBytes = calcMemBytes();
         os << "BTree arity = " << static_cast<int>(kB)
            << ", BTree arity for bottom node = " << static_cast<int>(kBtmB) << std::endl;
         os << "Sum of weights = " << sumWeights << std::endl;
-        os << "Total: " << calcMemBytes() << " bytes" << std::endl;
+        os << "Total: " << totalBytes << " bytes = "
+           << (double)(totalBytes) / 1024 << " KiB = "
+           << ((double)(totalBytes) / 1024) / 1024 << " MiB" << std::endl;
         os << "Upper part of B+tree: " << calcMemBytesUpperPart()
            << " bytes, OccuRate = " << ((sr_.root_->calcNumSlots()) ? 100.0 * sr_.root_->calcNumUsed() / sr_.root_->calcNumSlots() : 0)
            << " (= 100*" << sr_.root_->calcNumUsed() << "/" << sr_.root_->calcNumSlots() << ")" << std::endl;
