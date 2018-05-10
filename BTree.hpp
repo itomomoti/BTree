@@ -855,7 +855,7 @@ namespace itmmti
       }
       numChildren_ -= (numToLeft - !idxIsInLeft);
 
-      // update lmJumpNode
+      //// update lmJumpNode
       if (!(this->isBorder())) {
         this->setLmJumpNode(this->children_[0]->getLmJumpNode());
       } else if (this->isJumpToBtm()) {
@@ -899,7 +899,7 @@ namespace itmmti
         }
       }
 
-      // update lmJumpNode
+      //// update lmJumpNode
       if (!(rnode->isBorder())) {
         rnode->setLmJumpNode(rnode->children_[0]->getLmJumpNode());
       } else if (rnode->isJumpToBtm()) {
@@ -964,7 +964,7 @@ namespace itmmti
       }
       numChildren_ -= (numToLeft - !idxIsInLeft);
 
-      // update lmJumpNode
+      //// update lmJumpNode
       if (this->isJumpToBtm()) {
         this->setLmJumpNode(this->children_[0]);
       }
@@ -1017,7 +1017,7 @@ namespace itmmti
         }
       }
 
-      // update lmJumpNode
+      //// update lmJumpNode
       if (rnode->isJumpToBtm()) {
         rnode->setLmJumpNode(rnode->children_[0]);
       }
@@ -1233,7 +1233,7 @@ namespace itmmti
       }
 
       if (!isRoot()) {
-        // Check siblings if they have space.
+        //// Check siblings if they have space.
         if (idxInSibling_) { // Check previous sibling.
           auto lnode = parent_->getChildPtr(idxInSibling_ - 1);
           if (lnode->getNumChildren() < kB - 1) { // Previous sibling is not full. (-1 for easier implementation)
@@ -1328,7 +1328,7 @@ namespace itmmti
       }
 
       if (idx == 0) {
-        this->setLmJumpNode(this->getChildPtr(1)->getLmJumpNode());
+        this->updateLmJumpNode(this->getChildPtr(1)->getLmJumpNode());
       }
 
       if (!isRoot() && num_new < kB / 2) {
@@ -1571,7 +1571,7 @@ namespace itmmti
       }
 
       if (idx == 0 && this->isJumpToBtm()) {
-        this->setLmJumpNode(this->getChildPtr(1));
+        this->updateLmJumpNode(this->getChildPtr(1));
       }
 
       if (!isRoot() && num_new < kB / 2) {
