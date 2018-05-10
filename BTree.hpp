@@ -1282,7 +1282,6 @@ namespace itmmti
      const uint8_t idx,
      const bool isIdxOfLeft
      ) {
-      assert(isBorder());
       assert(static_cast<uint16_t>(idx) < static_cast<uint16_t>(kB) * 2);
 
       const auto rnum = rnode->getNumChildren();
@@ -1317,7 +1316,6 @@ namespace itmmti
       // {//debug
       //   std::cerr << __func__ << this << ": idx = " << (int)idx << std::endl;
       // }
-      assert(!isBorder());
       assert(idx < numChildren_);
 
       const uint8_t num_new = numChildren_ - 1;
