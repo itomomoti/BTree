@@ -390,7 +390,6 @@ namespace itmmti
 
       const uint64_t beg = idxBeg / StepCodeUtil::kWCNum;
       const uint64_t end = (idxEnd - 1) / StepCodeUtil::kWCNum + (idxEnd <= (2 * kBtmB - StepCodeUtil::kWCNum));
-      // std::cout << __FUNCTION__ << ": " << idxBeg << "->" << beg << ", " << idxEnd << "->" << end << std::endl;
       stcc_.updateWCodesAuxM(wCodesAuxM_, beg, end);
     }
 
@@ -1445,12 +1444,12 @@ namespace itmmti
       for (uint16_t i = isLmBtm; i < numChildren; ++i) {
         const uint64_t weight = btm->getWeight(i);
         if (weight == 0) {
-          os << "error!! weightless element: i = " << (int)i << ", this = " << this << std::endl;
+          os << "!error!: weightless element: i = " << (int)i << ", this = " << this << std::endl;
         }
         sum += weight;
       }
       if (sum != sumWeights) {
-        os << "error!! weights does not match: sum = " << sum << ", sumWeights = " << sumWeights << std::endl;
+        os << "!error!: weights does not match: sum = " << sum << ", sumWeights = " << sumWeights << std::endl;
       }
       return sumWeights;
     }
@@ -1463,28 +1462,44 @@ namespace itmmti
      ) const noexcept {
       const uint16_t numChildren = node->getNumChildren();
       if (node->isBorder()) {
+        if (node->isJumpToBtm()) { // Jump to bottom node.
+          if (node->getLmJumpNode() != node->getChildPtr(0)) {
+            os << "!error!: leftmost jump node = " << node->getLmJumpNode() << " does not match children_[0] = " << node->getChildPtr(0) << std::endl;
+            node->printStatistics(os, true);
+          }
+        } else { // Jump to border node (itself).
+          if (node->getLmJumpNode() != node) {
+            os << "!error!: leftmost jump node = " << node->getLmJumpNode() << " does not match itself = " << this << std::endl;
+            node->printStatistics(os, true);
+          }
+        }
         for (uint16_t i = 0; i < numChildren; ++i) {
           const auto btm = reinterpret_cast<BtmNodeT *>(node->getChildPtr(static_cast<uint8_t>(i)));
           const uint64_t btmWeight = debugBtm(btm, os);
           const uint64_t psumWeight = node->getWeightOfChild(static_cast<uint8_t>(i));
           if (btmWeight != psumWeight) {
-            os << "error!! btm weight: i = " << (int)i << ", btmWeight = " << btmWeight << ", psumWeight = " << psumWeight << std::endl;
+            os << "!error!: btm weight: i = " << (int)i << ", btmWeight = " << btmWeight << ", psumWeight = " << psumWeight << std::endl;
             node->printStatistics(os, true);
             btm->printStatistics(os, true);
           }
         }
       } else {
+        if (node->getLmJumpNode() != node->getChildPtr(0)->getLmJumpNode()) {
+          os << "!error!: leftmost jump node = " << node->getLmJumpNode()
+             << " does not match that of leftmost child = " << node->getChildPtr(0)->getLmJumpNode() << std::endl;
+          node->printStatistics(os, true);
+        }
         for (uint16_t i = 0; i < numChildren; ++i) {
           const auto child = node->getChildPtr(static_cast<uint8_t>(i));
           const uint64_t childWeight = child->getSumOfWeight();
           const uint64_t psumWeight = node->getWeightOfChild(static_cast<uint8_t>(i));
           if (childWeight != psumWeight) {
-            os << "error!! weight: i = " << (int)i << ", childWeight = " << childWeight << ", psumWeight = " << psumWeight << std::endl;
+            os << "!error!: weight: i = " << (int)i << ", childWeight = " << childWeight << ", psumWeight = " << psumWeight << std::endl;
             node->printStatistics(os, true);
             child->printStatistics(os, true);
           }
           if (node != child->getParent()) {
-            os << "error!! child-parent: i = " << (int)i << ", parent = " << node << ", parent of child = " << child->getParent() << std::endl;
+            os << "!error! child-parent: i = " << (int)i << ", parent = " << node << ", parent of child = " << child->getParent() << std::endl;
             node->printStatistics(os, true);
             child->printStatistics(os, true);
           }
